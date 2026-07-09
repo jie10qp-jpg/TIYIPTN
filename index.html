@@ -3235,7 +3235,7 @@ function render2e(c) {
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Email phụ huynh (nếu có)</label>
               <input id="e_parent_email" placeholder="Email phụ huynh">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Tài khoản *</label>
-              <input id="eu" placeholder="Tên tài khoản">
+              <input id="eu" placeholder="Tên tài khoản (không phải email)">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Mật khẩu * <span style="color:var(--text-secondary);font-weight:400;">(tối thiểu 6 ký tự)</span></label>
               <input id="ep" placeholder="Mật khẩu" type="password">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Lớp</label>
@@ -3386,6 +3386,7 @@ async function addHV() {
     const lId = document.getElementById('el')?.value || '';
 
     if (!n || !username) { toast('Vui lòng điền Họ tên và Tài khoản', 'error'); return; }
+    if (username.includes('@')) { toast('Tên tài khoản không được chứa ký tự @ (đây là tên đăng nhập, không phải email)', 'error'); return; }
     if (!rawPassword) { toast('Vui lòng nhập mật khẩu', 'error'); return; }
     if (rawPassword.length < 6) { toast('Mật khẩu phải có ít nhất 6 ký tự!', 'error'); return; }
     if (!phone) { toast('Vui lòng nhập số điện thoại', 'error'); return; }
@@ -3481,6 +3482,7 @@ function edHV(uid) {
             const newPw = document.getElementById('edHV-pw')?.value;
             const newAccRaw = document.getElementById('edHV-acc')?.value.trim();
             const newL = document.getElementById('edHV-lop')?.value;
+            if (newAccRaw && newAccRaw.includes('@')) { toast('Tên tài khoản không được chứa ký tự @', 'error'); return; }
             if (newPw && newPw.length < 6) { toast('Mật khẩu phải ít nhất 6 ký tự', 'error'); return; }
             showLoading();
             try {
@@ -3514,7 +3516,7 @@ function renderTeachers(c) {
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Email</label>
               <input id="t_email" placeholder="Email">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Tài khoản *</label>
-              <input id="t_u" placeholder="Tên tài khoản">
+              <input id="t_u" placeholder="Tên tài khoản (không phải email)">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Mật khẩu * <span style="color:var(--text-secondary);font-weight:400;">(tối thiểu 6 ký tự)</span></label>
               <input id="t_p" placeholder="Mật khẩu" type="password">
               <button id="btn-add-teacher" style="margin-top:14px;width:100%;background:var(--success);">✅ Tạo giáo viên</button>
@@ -3605,6 +3607,7 @@ window.editTeacher = function(uid) {
             const email = document.getElementById('et-email')?.value.trim();
             const pw = document.getElementById('et-pw')?.value;
             const accRaw = document.getElementById('et-acc')?.value.trim();
+            if (accRaw && accRaw.includes('@')) { toast('Tên tài khoản không được chứa ký tự @', 'error'); return; }
             if (pw && pw.length < 6) { toast('Mật khẩu phải ít nhất 6 ký tự', 'error'); return; }
             if (phone) t.phone = phone;
             if (email !== undefined) t.email = email;
@@ -3640,6 +3643,7 @@ async function addTeacher() {
     const rawPassword = document.getElementById('t_p').value;
 
     if (!n || !username) { toast('Vui lòng điền Tên GV và Tài khoản', 'error'); return; }
+    if (username.includes('@')) { toast('Tên tài khoản không được chứa ký tự @ (đây là tên đăng nhập, không phải email)', 'error'); return; }
     if (!rawPassword || rawPassword.length < 6) { toast('Mật khẩu phải có ít nhất 6 ký tự!', 'error'); return; }
     if (Object.values(db.users||{}).some(u2 => u2.u === u)) {
         toast('Tài khoản giáo viên này đã tồn tại!', 'error'); return;
