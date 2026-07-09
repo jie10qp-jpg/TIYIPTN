@@ -3234,7 +3234,7 @@ function render2e(c) {
               <input id="e_parent_phone" placeholder="SĐT phụ huynh">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Email phụ huynh (nếu có)</label>
               <input id="e_parent_email" placeholder="Email phụ huynh">
-              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Tài khoản * <span style="color:var(--text-secondary);font-weight:400;">(sẽ thêm đuôi .pn)</span></label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Tài khoản *</label>
               <input id="eu" placeholder="Tên tài khoản">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Mật khẩu * <span style="color:var(--text-secondary);font-weight:400;">(tối thiểu 6 ký tự)</span></label>
               <input id="ep" placeholder="Mật khẩu" type="password">
@@ -3378,7 +3378,7 @@ async function addHV() {
     const n = document.getElementById('en').value.trim();
     const phone = document.getElementById('e_phone').value.trim();
     const username = document.getElementById('eu').value.trim();
-    const u = username + '.pn';
+    const u = username;
     const rawPassword = document.getElementById('ep').value;
     const email = document.getElementById('e_email')?.value.trim() || '';
     const parentPhone = document.getElementById('e_parent_phone')?.value.trim() || '';
@@ -3470,7 +3470,7 @@ function edHV(uid) {
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px;margin-top:8px;text-align:left;">Mật khẩu mới <span style="font-weight:400;color:var(--text-secondary);">(để trống = giữ nguyên)</span></label>
         <input id="edHV-pw" type="password" placeholder="Mật khẩu mới (≥6 ký tự)">
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px;margin-top:8px;text-align:left;">Tài khoản <span style="font-weight:400;color:var(--text-secondary);">(không có đuôi)</span></label>
-        <input id="edHV-acc" value="${escapeHtml((h.u||'').replace(/\.pn$/,'').replace(/\.pn\.edu$/,''))}" placeholder="Tên tài khoản">
+        <input id="edHV-acc" value="${escapeHtml(h.u||'')}" placeholder="Tên tài khoản">
         <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px;margin-top:8px;text-align:left;">Lớp</label>
         <select id="edHV-lop" style="border-radius:12px;"><option value="">-- Chưa xếp lớp --</option>${classOptions}</select>`,
         async () => {
@@ -3485,7 +3485,7 @@ function edHV(uid) {
             showLoading();
             try {
                 const updates = { phone: newPhone, email: newEmail, parentPhone: newParentPhone, parentEmail: newParentEmail, l: newL };
-                if (newAccRaw) updates.u = newAccRaw + '.pn';
+                if (newAccRaw) updates.u = newAccRaw;
                 if (newPw) { const rec = newPasswordRecord(newPw); updates.p = rec.hash; updates.salt = rec.salt; }
                 Object.assign(h, updates);
                 await fbDB.ref('users/' + uid).update(updates);
@@ -3513,7 +3513,7 @@ function renderTeachers(c) {
               <input id="t_phone" placeholder="Số điện thoại">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Email</label>
               <input id="t_email" placeholder="Email">
-              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Tài khoản * <span style="color:var(--text-secondary);font-weight:400;">(sẽ thêm đuôi .tpn)</span></label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Tài khoản *</label>
               <input id="t_u" placeholder="Tên tài khoản">
               <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:2px;margin-top:8px;">Mật khẩu * <span style="color:var(--text-secondary);font-weight:400;">(tối thiểu 6 ký tự)</span></label>
               <input id="t_p" placeholder="Mật khẩu" type="password">
@@ -3598,8 +3598,8 @@ window.editTeacher = function(uid) {
         <input id="et-email" value="${escapeHtml(t.email||'')}" placeholder="Email">
         <label style="font-size:12px; font-weight:600; display:block; margin-bottom:3px;margin-top:8px;text-align:left;">Mật khẩu mới <span style="font-weight:400;color:var(--text-secondary);">(để trống = giữ nguyên)</span></label>
         <input id="et-pw" type="password" placeholder="Mật khẩu mới (≥6 ký tự)">
-        <label style="font-size:12px; font-weight:600; display:block; margin-bottom:3px;margin-top:8px;text-align:left;">Tài khoản <span style="font-weight:400;color:var(--text-secondary);">(không có đuôi .tpn)</span></label>
-        <input id="et-acc" value="${escapeHtml((t.u||'').replace(/\.tpn$/,'').replace(/\.pn\.tc\.edu$/,''))}" placeholder="Tên tài khoản">`,
+        <label style="font-size:12px; font-weight:600; display:block; margin-bottom:3px;margin-top:8px;text-align:left;">Tài khoản</label>
+        <input id="et-acc" value="${escapeHtml(t.u||'')}" placeholder="Tên tài khoản">`,
         async () => {
             const phone = document.getElementById('et-phone')?.value.trim();
             const email = document.getElementById('et-email')?.value.trim();
@@ -3609,7 +3609,7 @@ window.editTeacher = function(uid) {
             if (phone) t.phone = phone;
             if (email !== undefined) t.email = email;
             const updates = { phone: t.phone, email: t.email };
-            if (accRaw) { t.u = accRaw + '.tpn'; updates.u = t.u; }
+            if (accRaw) { t.u = accRaw; updates.u = t.u; }
             if (pw) { const rec = newPasswordRecord(pw); updates.p = rec.hash; updates.salt = rec.salt; t.p = rec.hash; t.salt = rec.salt; }
             await saveDB('users/' + uid, updates);
             op('teachers');
@@ -3636,7 +3636,7 @@ async function addTeacher() {
     const phone = document.getElementById('t_phone').value.trim();
     const email = document.getElementById('t_email')?.value.trim() || '';
     const username = document.getElementById('t_u').value.trim();
-    const u = username + '.tpn';
+    const u = username;
     const rawPassword = document.getElementById('t_p').value;
 
     if (!n || !username) { toast('Vui lòng điền Tên GV và Tài khoản', 'error'); return; }
