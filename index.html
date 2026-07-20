@@ -593,6 +593,64 @@
     .go-ext-bar-fill { height:100%; width:0%; border-radius:10px; background:linear-gradient(90deg,var(--accent,#6d5bd0),#a78bfa); transition:width 1.15s cubic-bezier(.4,0,.2,1); }
     .go-ext-cancel { margin-top:18px; background:none; border:1px solid var(--glass-border,rgba(255,255,255,0.15)); color:var(--text-secondary,#9aa);
         padding:8px 18px; border-radius:12px; font-size:12px; font-weight:600; cursor:pointer; min-height:unset; }
+
+    /* ===== LỊCH HỌC — dải chọn ngày kiểu lịch di động, vòng tròn sĩ số, roster, week-chip ===== */
+    .lh-status-card { border-radius:var(--radius); padding:16px 18px; margin-bottom:14px; color:#fff; background:linear-gradient(135deg,#3b82f6,#6366f1); box-shadow:var(--shadow); }
+    .lh-status-card.gv { background:linear-gradient(135deg,#0ea5e9,#6366f1); }
+    .lh-status-card.ad { background:linear-gradient(135deg,#334155,#0f172a); }
+    .lh-status-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+    .lh-status-title { font-weight:800; font-size:15px; }
+    .lh-status-sub { font-size:11.5px; opacity:.85; margin-top:2px; }
+    .lh-status-badge { background:rgba(255,255,255,0.22); padding:4px 10px; border-radius:20px; font-size:10.5px; font-weight:700; white-space:nowrap; }
+    .lh-progress-track { height:7px; background:rgba(255,255,255,0.25); border-radius:10px; margin-top:12px; overflow:hidden; }
+    .lh-progress-fill { height:100%; background:#fff; border-radius:10px; transition:width .3s; }
+    .lh-progress-label { font-size:10.5px; opacity:.85; margin-top:5px; }
+
+    .lh-day-strip { display:flex; gap:7px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px; scrollbar-width:none; }
+    .lh-day-strip::-webkit-scrollbar { display:none; }
+    .lh-day-chip { flex:0 0 auto; width:54px; text-align:center; padding:8px 0 7px; border-radius:14px; background:var(--surface); border:1.5px solid var(--border); cursor:pointer; transition:.15s; -webkit-tap-highlight-color:transparent; }
+    .lh-day-chip .d-label { font-size:10px; color:var(--text-secondary); font-weight:600; }
+    .lh-day-chip .d-num { font-size:14px; font-weight:800; margin-top:2px; }
+    .lh-day-chip .d-dot { width:5px; height:5px; border-radius:50%; background:var(--success); margin:4px auto 0; }
+    .lh-day-chip.active { background:var(--accent); border-color:var(--accent); }
+    .lh-day-chip.active .d-label, .lh-day-chip.active .d-num { color:#fff; }
+    .lh-day-chip.empty .d-dot { background:transparent; }
+
+    .lh-tiet-card { background:var(--surface); border-radius:16px; border:1px solid var(--border); padding:12px 14px; margin-bottom:10px; display:flex; align-items:center; gap:12px; box-shadow:0 1px 3px rgba(0,0,0,0.03); }
+    .lh-tiet-ring { position:relative; width:44px; height:44px; flex:0 0 auto; }
+    .lh-tiet-ring svg { transform:rotate(-90deg); }
+    .lh-tiet-ring .bg { stroke:var(--surface-alt); }
+    .lh-tiet-ring .fg { stroke:var(--success); stroke-linecap:round; transition:.3s; }
+    .lh-tiet-ring .fg.warn { stroke:#f59e0b; }
+    .lh-tiet-ring .fg.full { stroke:var(--danger); }
+    .lh-tiet-ring .num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; }
+    .lh-tiet-info { flex:1; min-width:0; }
+    .lh-tiet-ma { font-weight:800; font-size:13.5px; }
+    .lh-tiet-time { font-size:11.5px; color:var(--text-secondary); margin-top:1px; }
+    .lh-tiet-tag { display:inline-block; font-size:9.5px; font-weight:700; padding:1.5px 7px; border-radius:20px; margin-top:4px; }
+    .lh-tag-mine { background:rgba(16,185,129,0.12); color:var(--success); }
+    .lh-tag-wait { background:rgba(245,158,11,0.14); color:#f59e0b; }
+    .lh-tiet-action button { padding:8px 14px; font-size:11.5px; min-height:unset; border-radius:12px; }
+    .lh-btn-dk { background:var(--success); }
+    .lh-btn-full { background:#f59e0b; }
+    .lh-btn-mine { background:rgba(239,68,68,0.1); color:var(--danger); }
+    .lh-btn-edit { background:var(--surface-alt); color:var(--text); }
+    .lh-btn-view { background:var(--surface-alt); color:var(--accent); }
+
+    .lh-avatar-stack { display:flex; }
+    .lh-avatar-stack span { width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:9px; display:flex; align-items:center; justify-content:center; font-weight:700; border:2px solid var(--surface); margin-left:-7px; }
+    .lh-avatar-stack span:first-child { margin-left:0; }
+
+    .lh-week-strip { display:flex; gap:8px; overflow-x:auto; margin-bottom:14px; scrollbar-width:none; }
+    .lh-week-strip::-webkit-scrollbar { display:none; }
+    .lh-week-chip { flex:0 0 auto; padding:9px 14px; border-radius:14px; background:var(--surface); border:1.5px solid var(--border); font-size:11.5px; font-weight:700; white-space:nowrap; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .lh-week-chip.active { background:var(--text); color:var(--bg); border-color:var(--text); }
+    .lh-week-chip.new { background:transparent; border:1.5px dashed var(--accent); color:var(--accent); }
+
+    .lh-fab { position:fixed; right:20px; bottom:86px; width:52px; height:52px; border-radius:50%; background:var(--accent); color:#fff; border:none; font-size:22px; box-shadow:0 8px 20px rgba(59,130,246,0.4); cursor:pointer; z-index:60; display:flex; align-items:center; justify-content:center; }
+    .lh-section-h { font-size:12px; font-weight:800; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; margin:16px 0 8px 2px; }
+    .lh-sheet-peek { background:var(--surface); border-radius:18px; padding:12px 14px; margin-top:16px; border:1px solid var(--border); }
+    .lh-sheet-peek-head { display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:12.5px; margin-bottom:8px; }
 </style>
 
 <!-- ===== LOGIN PAGE — TIYI DEEP INDIGO × AMBER PHOENIX ===== -->
@@ -6677,7 +6735,9 @@ function _hvFocusBaiTap(id) {
 }
 
 // ─── HỌC VIÊN: ĐK phụ (Lịch học bù / phụ đạo) ───
+let _hvDkPhuContainer = null; // container thực tế đang hiển thị ĐK phụ (có thể là 'hv-hoctap-body' hoặc 'hv-quanly-body' tuỳ màn hình)
 async function renderHVDkPhu(container) {
+    _hvDkPhuContainer = container;
     container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);">⏳ Đang tải...</div>';
     const infoBox = `
     <div class="card" style="margin-bottom:14px;background:rgba(22,194,163,0.06);border-color:rgba(22,194,163,0.3);">
@@ -7705,6 +7765,60 @@ const LH_DAYS = [
     {key:'7', label:'Thứ 7'},
     {key:'cn', label:'Chủ Nhật'}
 ];
+// Nhãn ngắn + độ lệch ngày (so với Thứ 2 đầu tuần) — dùng cho dải chọn ngày kiểu lịch di động
+const LH_DAYS_SHORT = [
+    {key:'2', label:'T2', offset:0}, {key:'3', label:'T3', offset:1}, {key:'4', label:'T4', offset:2},
+    {key:'5', label:'T5', offset:3}, {key:'6', label:'T6', offset:4}, {key:'7', label:'T7', offset:5},
+    {key:'cn', label:'CN', offset:6}
+];
+
+// Số ngày trong tháng (vd "29") ứng với từng ngày của tuần, dựa trên weekStartDate ('YYYY-MM-DD' của Thứ 2).
+// Nếu không có weekStartDate thì trả về rỗng (chỉ hiện nhãn Txx).
+function _lhDayNums(weekStartDate) {
+    const out = {};
+    if (!weekStartDate) return out;
+    const base = new Date(weekStartDate + 'T00:00:00');
+    if (isNaN(base.getTime())) return out;
+    LH_DAYS_SHORT.forEach(d => {
+        const dt = new Date(base.getTime() + d.offset * 86400000);
+        out[d.key] = dt.getDate();
+    });
+    return out;
+}
+
+// Vòng tròn % sĩ số (giống mockup): xanh lá <70%, vàng 70-99%, đỏ khi đầy.
+function _lhRingSvg(filled, slot) {
+    const s = slot || 0;
+    const pct = s > 0 ? Math.min(100, Math.round(filled / s * 100)) : 0;
+    const cls = pct >= 100 ? 'full' : (pct >= 70 ? 'warn' : '');
+    const r = 18, c = 2 * Math.PI * r, off = c * (1 - pct / 100);
+    return `<div class="lh-tiet-ring"><svg width="44" height="44"><circle class="bg" cx="22" cy="22" r="${r}" stroke-width="4" fill="none"/>
+    <circle class="fg ${cls}" cx="22" cy="22" r="${r}" stroke-width="4" fill="none" stroke-dasharray="${c}" stroke-dashoffset="${off}"/></svg>
+    <div class="num">${filled}/${s}</div></div>`;
+}
+
+// Xây dải chọn ngày (day-strip) kiểu lịch di động: mỗi chip = 1 ngày trong tuần, chấm xanh nếu có tiết.
+// weekDaysObj: { '2':[...tiet], '3':[...], ... } — dùng để biết ngày nào có tiết (hiện chấm) và ngày nào trống (mờ đi).
+// weekStartDate: để hiện số ngày thật (vd 29, 30, 31...) thay vì chỉ "T2, T3".
+function _lhBuildDayStrip(elId, weekDaysObj, activeKey, onPick) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const nums = _lhDayNums(window._lhDraft?.weekStart || (weekDaysObj && weekDaysObj.__weekStartDate));
+    el.innerHTML = LH_DAYS_SHORT.map(d => {
+        const hasTiet = (weekDaysObj && (weekDaysObj[d.key] || []).length) > 0;
+        const isActive = d.key === activeKey;
+        return `<div class="lh-day-chip ${isActive ? 'active' : ''} ${hasTiet ? '' : 'empty'}" data-key="${d.key}">
+            <div class="d-label">${d.label}</div><div class="d-num">${nums[d.key] || ''}</div><div class="d-dot"></div>
+        </div>`;
+    }).join('');
+    el.querySelectorAll('.lh-day-chip').forEach(chip => {
+        chip.onclick = () => {
+            el.querySelectorAll('.lh-day-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            onPick(chip.dataset.key);
+        };
+    });
+}
 
 function _lhId(prefix) { return (prefix||'lh') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7); }
 
@@ -7743,17 +7857,57 @@ async function _lhLoadWeeksForClass(classId) {
     return snap.val() || {};
 }
 
+// Trạng thái đăng ký của MỘT tuần, tính theo đúng regStart/regEnd đã lưu
+// (đây là nguồn sự thật duy nhất — mọi nơi hiển thị badge phải gọi hàm này,
+// để tránh tình trạng "hiện một đường, chọn tuần lại theo một nẻo khác").
+function _lhWeekRegStatus(w) {
+    const now = Date.now();
+    const start = w && w.regStart ? new Date(w.regStart).getTime() : null;
+    const end = w && w.regEnd ? new Date(w.regEnd).getTime() : null;
+    if (start === null || end === null) return 'unknown';
+    if (now < start) return 'upcoming';
+    if (now > end) return 'closed';
+    return 'open';
+}
+window._lhWeekRegStatus = _lhWeekRegStatus;
+
+// Chọn tuần "đang áp dụng" để hiển thị/đăng ký cho học viên & để đánh dấu
+// "đang hiển thị" bên Admin. Quy tắc ưu tiên (khớp đúng với các mốc
+// regStart/regEnd mà Admin nhìn thấy khi tạo tuần, tránh vênh giữa cái
+// hiển thị và cái được chọn):
+//   1) Tuần đang MỞ đăng ký (now nằm trong [regStart, regEnd]) — nếu có
+//      nhiều tuần cùng mở, ưu tiên tuần sắp đóng sớm nhất.
+//   2) Không có tuần nào đang mở đăng ký -> tuần đang trong "tuần áp dụng"
+//      (weekStartDate .. weekEndsAt chứa thời điểm hiện tại).
+//   3) Không có -> tuần có thời điểm mở đăng ký (regStart) gần nhất trong
+//      tương lai (tuần sắp tới).
+//   4) Cuối cùng -> tuần gần nhất đã kết thúc.
 function _lhPickActiveWeek(weeksObj) {
     const now = Date.now();
-    let best = null, bestId = null, bestEnds = Infinity;
-    Object.entries(weeksObj || {}).forEach(([wid, w]) => {
-        const ends = w.weekEndsAt ? new Date(w.weekEndsAt).getTime() : null;
-        if (ends === null) return;
-        if (ends >= now && ends < bestEnds) { bestEnds = ends; best = w; bestId = wid; }
+    const entries = Object.entries(weeksObj || {});
+    if (!entries.length) return null;
+
+    const open = entries.filter(([, w]) => _lhWeekRegStatus(w) === 'open');
+    if (open.length) {
+        open.sort((a, b) => new Date(a[1].regEnd).getTime() - new Date(b[1].regEnd).getTime());
+        return open[0];
+    }
+
+    const current = entries.filter(([, w]) => {
+        const s = w.weekStartDate ? new Date(w.weekStartDate + 'T00:00:00').getTime() : null;
+        const e = w.weekEndsAt ? new Date(w.weekEndsAt).getTime() : null;
+        return s !== null && e !== null && now >= s && now <= e;
     });
-    if (best) return [bestId, best];
+    if (current.length) return current[0];
+
+    const upcoming = entries.filter(([, w]) => w.regStart && new Date(w.regStart).getTime() > now);
+    if (upcoming.length) {
+        upcoming.sort((a, b) => new Date(a[1].regStart).getTime() - new Date(b[1].regStart).getTime());
+        return upcoming[0];
+    }
+
     let latest = null, latestId = null, latestEnds = -Infinity;
-    Object.entries(weeksObj || {}).forEach(([wid, w]) => {
+    entries.forEach(([wid, w]) => {
         const ends = w.weekEndsAt ? new Date(w.weekEndsAt).getTime() : 0;
         if (ends > latestEnds) { latestEnds = ends; latest = w; latestId = wid; }
     });
@@ -7870,36 +8024,66 @@ async function _lhOnClassChangeDK(classId) {
     const editorWrap = document.getElementById('lh-dk-editor');
     if (editorWrap) editorWrap.innerHTML = '';
     window._lhDraft = null;
+    window._lhDkClassId = classId;
     if (!classId) { if (weeksWrap) weeksWrap.innerHTML = ''; return; }
     if (weeksWrap) weeksWrap.innerHTML = '<div style="padding:14px;color:var(--text-secondary);">⏳ Đang tải các tuần...</div>';
     const weeks = await _lhLoadWeeksForClass(classId);
     const active = _lhPickActiveWeek(weeks);
     const activeId = active ? active[0] : null;
     const entries = Object.entries(weeks).sort((a,b) => (b[1].createdAt||'').localeCompare(a[1].createdAt||''));
-    if (weeksWrap) {
-        weeksWrap.innerHTML = `
-        <div class="card" style="margin-bottom:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-                <div style="font-weight:700;font-size:13px;">📋 Các tuần đã tạo</div>
-                <button onclick="_lhNewWeekEditor('${escapeHtml(classId)}')" style="padding:6px 14px;font-size:12px;min-height:unset;background:var(--success);">➕ Tạo tuần mới</button>
-            </div>
-            ${entries.length ? entries.map(([wid, w]) => `
-                <div onclick="_lhLoadWeekEditor('${escapeHtml(classId)}','${escapeHtml(wid)}')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:9px 10px;border-radius:10px;margin-bottom:6px;background:${wid===activeId?'rgba(16,185,129,0.08)':'var(--surface-alt)'};border:1px solid var(--border);flex-wrap:wrap;gap:6px;">
-                    <span style="font-size:13px;font-weight:600;">${escapeHtml(w.weekName||wid)} ${wid===activeId?'<span style="color:var(--success);font-size:11px;">🟢 đang hiển thị</span>':''}</span>
-                    <span style="font-size:11px;color:var(--text-secondary);">${_lhFmtDT(w.regStart)} → ${_lhFmtDT(w.regEnd)}</span>
-                </div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0;">Chưa có tuần nào cho lớp này.</div>'}
+    if (!weeksWrap) return;
+    if (!entries.length) {
+        weeksWrap.innerHTML = `<div class="card" style="text-align:center;padding:26px 18px;">
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Lớp này chưa có tuần lịch học nào.</div>
+            <button onclick="_lhNewWeekEditor('${escapeHtml(classId)}')" style="background:var(--success);">➕ Tạo tuần mới</button>
         </div>`;
+        return;
     }
+    weeksWrap.innerHTML = `<div class="lh-week-strip" id="lh-dk-weekstrip"></div>`;
+    const strip = document.getElementById('lh-dk-weekstrip');
+    strip.innerHTML = entries.map(([wid,w]) => `<div class="lh-week-chip ${wid===activeId?'active':''}" data-wid="${escapeHtml(wid)}">${escapeHtml(w.weekName||wid)}</div>`).join('')
+        + `<div class="lh-week-chip new" id="lh-dk-newweek-chip">➕ Tạo tuần mới</div>`;
+    strip.querySelectorAll('.lh-week-chip[data-wid]').forEach(chip => {
+        chip.onclick = () => {
+            strip.querySelectorAll('.lh-week-chip[data-wid]').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            _lhLoadWeekEditor(classId, chip.dataset.wid);
+        };
+    });
+    const newChip = document.getElementById('lh-dk-newweek-chip');
+    if (newChip) newChip.onclick = () => _lhNewWeekEditor(classId);
+    _lhLoadWeekEditor(classId, activeId || entries[0][0]);
 }
 window._lhOnClassChangeDK = _lhOnClassChangeDK;
+
+// Xoá một tuần lịch học (chính khoá) — xoá cả cấu hình lẫn các đăng ký liên quan
+function _lhDeleteWeek(classId, weekId) {
+    modal('Xoá tuần lịch học này? Học viên đã đăng ký sẽ mất toàn bộ đăng ký của tuần này.', async () => {
+        try {
+            await fbDB.ref('lichhoc/' + classId + '/' + weekId).remove();
+            await fbDB.ref('lichhoc_dk/' + classId + '/' + weekId).remove();
+            toast('Đã xoá tuần lịch học!', 'success');
+            if (window._lhDraft && window._lhDraft.classId === classId && window._lhDraft.weekId === weekId) {
+                window._lhDraft = null;
+                const editorWrap = document.getElementById('lh-dk-editor');
+                if (editorWrap) editorWrap.innerHTML = '';
+            }
+            _lhOnClassChangeDK(classId);
+        } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+    });
+}
+window._lhDeleteWeek = _lhDeleteWeek;
 
 function _lhNewWeekEditor(classId) {
     window._lhDraft = {
         classId, weekId: _lhId('wk'), isNew: true,
-        weekName: '', weekStart: '', regStart: '', regEnd: '', limitTiet: '',
+        weekName: '', weekStart: '', regStart: '', regEnd: '', limitTiet: '', dayKey: '2',
         days: { '2':[], '3':[], '4':[], '5':[], '6':[], '7':[], 'cn':[] }
     };
-    _lhRenderEditor();
+    const strip = document.getElementById('lh-dk-weekstrip');
+    if (strip) strip.querySelectorAll('.lh-week-chip[data-wid]').forEach(c => c.classList.remove('active'));
+    _lhRenderAdminWeekView();
+    _lhOpenMetaEditor();
 }
 window._lhNewWeekEditor = _lhNewWeekEditor;
 
@@ -7914,67 +8098,67 @@ async function _lhLoadWeekEditor(classId, weekId) {
         days: w.days ? JSON.parse(JSON.stringify(w.days)) : { '2':[], '3':[], '4':[], '5':[], '6':[], '7':[], 'cn':[] }
     };
     LH_DAYS.forEach(d => { if (!window._lhDraft.days[d.key]) window._lhDraft.days[d.key] = []; });
-    _lhRenderEditor();
+    const todayKey = _lhDayKeyForDate(new Date());
+    window._lhDraft.dayKey = (window._lhDraft.days[todayKey]||[]).length ? todayKey
+        : (LH_DAYS_SHORT.find(x => (window._lhDraft.days[x.key]||[]).length)?.key || '2');
+    _lhRenderAdminWeekView();
 }
 window._lhLoadWeekEditor = _lhLoadWeekEditor;
 
-function _lhRenderEditor() {
+// Khung xem/soạn 1 tuần cho Admin: status-card (tên tuần, thời gian ĐK, tổng chỗ) + dải chọn ngày + danh sách tiết
+// của ngày đang chọn + nút nổi (FAB) để thêm tiết ngay tại ngày đó — gộp "tạo tuần" và "thêm tiết" vào 1 màn hình.
+function _lhRenderAdminWeekView() {
     const wrap = document.getElementById('lh-dk-editor');
     if (!wrap || !window._lhDraft) return;
     const d = window._lhDraft;
+    if (!d.dayKey || !(d.days[d.dayKey])) d.dayKey = LH_DAYS_SHORT.find(x => (d.days[x.key]||[]).length)?.key || '2';
+    let totalSlot = 0;
+    LH_DAYS.forEach(day => (d.days[day.key]||[]).forEach(t => totalSlot += (parseInt(t.slot,10)||0)));
+
     wrap.innerHTML = `
-    <div class="card" style="margin-bottom:14px;">
-        <div style="font-weight:800;font-size:14px;margin-bottom:12px;">${d.isNew ? '➕ Tạo tuần mới' : '✏️ Sửa tuần: ' + escapeHtml(d.weekName||'')}</div>
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);">Tên tuần</label>
-        <input id="lh-f-name" value="${escapeHtml(d.weekName)}" placeholder="VD: Tuần 27 (06/07 - 12/07)">
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Tuần áp dụng <span style="font-weight:400;">(chọn ngày Thứ 2 đầu tuần)</span></label>
-        <input id="lh-f-weekstart" type="date" value="${escapeHtml(d.weekStart)}">
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Thời gian bắt đầu đăng ký</label>
-        <input id="lh-f-regstart" type="datetime-local" value="${escapeHtml(d.regStart)}">
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Thời gian kết thúc đăng ký</label>
-        <input id="lh-f-regend" type="datetime-local" value="${escapeHtml(d.regEnd)}">
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Giới hạn đăng ký tiết <span style="font-weight:400;">(số tiết/tuần học viên được đăng ký)</span></label>
-        <input id="lh-f-limit" type="number" min="0" value="${escapeHtml(String(d.limitTiet))}" style="max-width:160px;">
-        <div style="display:flex;gap:10px;margin-top:14px;">
-            <button id="lh-btn-save" style="flex:1;background:linear-gradient(135deg,#8b5cf6,#6d28d9);">💾 Lưu</button>
-            <button class="ghost" onclick="_lhResetEditor()" style="flex:0 0 auto;">♻️ Reset</button>
+    <div class="lh-status-card ad">
+        <div class="lh-status-top">
+            <div>
+                <div class="lh-status-title">⚙️ ${escapeHtml(d.weekName || '(chưa đặt tên tuần)')}</div>
+                <div class="lh-status-sub">${d.regStart && d.regEnd ? 'Mở ĐK: ' + _lhFmtDT(d.regStart) + ' → ' + _lhFmtDT(d.regEnd) : '⚠️ Chưa thiết lập thời gian đăng ký'}</div>
+            </div>
+            <div class="lh-status-badge">🪑 ${totalSlot} chỗ/tuần</div>
         </div>
-        <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;">💡 Lịch tuần này sẽ hiển thị cho học viên đến hết 23:59 Chủ Nhật của tuần áp dụng — tuần mới tạo sẽ chỉ thay thế sau thời điểm đó.</div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+            <button onclick="_lhOpenMetaEditor()" style="flex:1;min-width:130px;background:rgba(255,255,255,0.18);">✏️ Sửa thông tin tuần</button>
+            <button onclick="_lhSaveWeek()" style="flex:1;min-width:130px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);">💾 Lưu lịch học</button>
+            ${!d.isNew ? `<button onclick="_lhDeleteWeek('${escapeHtml(d.classId)}','${escapeHtml(d.weekId)}')" class="danger" style="flex:0 0 auto;">🗑</button>` : ''}
+        </div>
     </div>
-    <div id="lh-days-wrap"></div>`;
-    const saveBtn = document.getElementById('lh-btn-save');
-    if (saveBtn) saveBtn.onclick = _lhSaveWeek;
-    _lhRenderDaysWrap();
+    <div class="lh-day-strip" id="lh-dk-daystrip"></div>
+    <div id="lh-dk-tietlist"></div>`;
+
+    _lhBuildDayStrip('lh-dk-daystrip', d.days, d.dayKey, (k) => { d.dayKey = k; _lhRenderAdminTietList(); });
+    _lhRenderAdminTietList();
 }
 
-function _lhRenderDaysWrap() {
-    const wrap = document.getElementById('lh-days-wrap');
-    if (!wrap || !window._lhDraft) return;
+function _lhRenderAdminTietList() {
     const d = window._lhDraft;
-    wrap.innerHTML = LH_DAYS.map(day => {
-        const list = d.days[day.key] || [];
-        return `<div class="card" style="margin-bottom:10px;padding:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <div style="font-weight:700;font-size:13px;">${day.label}</div>
-                <button onclick="_lhOpenThemTiet('${day.key}')" style="padding:5px 12px;font-size:11px;min-height:unset;background:var(--accent);">＋ thêm tiết</button>
+    const el = document.getElementById('lh-dk-tietlist');
+    if (!d || !el) return;
+    const list = d.days[d.dayKey] || [];
+    el.innerHTML = list.length ? list.map(t => `
+        <div class="lh-tiet-card">
+            <div class="lh-tiet-ring" style="display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--text-secondary);background:var(--surface-alt);border-radius:50%;">🪑${escapeHtml(String(t.slot))}</div>
+            <div class="lh-tiet-info">
+                <div class="lh-tiet-ma">${escapeHtml(t.ma)}</div>
+                <div class="lh-tiet-time">⏰ ${escapeHtml(t.time)}${t.note ? ' · 📝 ' + escapeHtml(t.note) : ''}</div>
             </div>
-            ${list.length ? list.map(t => `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--border);gap:8px;">
-                    <div style="font-size:12.5px;min-width:0;">
-                        <b>${escapeHtml(t.ma)}</b> · ⏰ ${escapeHtml(t.time)} · 🪑 ${escapeHtml(String(t.slot))} slot
-                        ${t.note ? `<div style="color:var(--text-secondary);font-size:11px;">📝 ${escapeHtml(t.note)}</div>` : ''}
-                    </div>
-                    <button onclick="_lhRemoveTiet('${day.key}','${t.id}')" class="danger" style="padding:5px 10px;font-size:11px;min-height:unset;flex-shrink:0;">🗑</button>
-                </div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0;">Chưa có tiết nào.</div>'}
-        </div>`;
-    }).join('');
+            <div class="lh-tiet-action"><button class="lh-btn-edit" onclick="_lhRemoveTiet('${d.dayKey}','${t.id}')">🗑 Xoá</button></div>
+        </div>`).join('') : `<div style="text-align:center;color:var(--text-secondary);font-size:12.5px;padding:26px 0;">Chưa có tiết — bấm nút ＋ để thêm</div>`;
+    el.innerHTML += `<button class="lh-fab" onclick="_lhOpenThemTiet('${d.dayKey}')" title="Thêm tiết cho ngày đang chọn">＋</button>`;
 }
 
 function _lhOpenThemTiet(dayKey) {
     const mc = document.getElementById('modal-container');
     mc.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.parentElement.innerHTML=''">
     <div class="modal-box" style="text-align:left;max-width:420px;width:92%;padding:20px;">
-        <div style="font-weight:800;font-size:15px;margin-bottom:14px;">➕ Thêm tiết</div>
+        <div style="font-weight:800;font-size:15px;margin-bottom:14px;">➕ Thêm tiết · ${escapeHtml((LH_DAYS.find(x=>x.key===dayKey)||{}).label||'')}</div>
         <label style="font-size:12px;font-weight:600;color:var(--text-secondary);">Mã tiết</label>
         <input id="lh-t-ma" placeholder="VD: T1">
         <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Thời gian</label>
@@ -8002,41 +8186,79 @@ function _lhAddTiet(dayKey) {
     if (!window._lhDraft) return;
     window._lhDraft.days[dayKey].push({ id: _lhId('tiet'), ma, time, slot, note: note || '' });
     document.getElementById('modal-container').innerHTML = '';
-    _lhRenderDaysWrap();
+    _lhRenderAdminTietList();
 }
 window._lhAddTiet = _lhAddTiet;
 
 function _lhRemoveTiet(dayKey, tietId) {
     if (!window._lhDraft) return;
     window._lhDraft.days[dayKey] = (window._lhDraft.days[dayKey]||[]).filter(t => t.id !== tietId);
-    _lhRenderDaysWrap();
+    _lhRenderAdminTietList();
 }
 window._lhRemoveTiet = _lhRemoveTiet;
 
-function _lhResetEditor() {
-    if (!window._lhDraft) return;
-    _lhNewWeekEditor(window._lhDraft.classId);
+// Modal sửa thông tin tuần (tên / tuần áp dụng / thời gian ĐK / giới hạn tiết) — chỉ cập nhật vào draft,
+// phải bấm "💾 Lưu lịch học" ở màn chính mới thực sự ghi xuống Firebase.
+function _lhOpenMetaEditor() {
+    const d = window._lhDraft;
+    if (!d) return;
+    const mc = document.getElementById('modal-container');
+    mc.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.parentElement.innerHTML=''">
+    <div class="modal-box" style="text-align:left;max-width:420px;width:92%;padding:20px;max-height:88vh;overflow-y:auto;">
+        <div style="font-weight:800;font-size:15px;margin-bottom:14px;">${d.isNew ? '➕ Thiết lập tuần mới' : '✏️ Sửa thông tin tuần'}</div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);">Tên tuần</label>
+        <input id="lh-f-name" value="${escapeHtml(d.weekName)}" placeholder="VD: Tuần 27 (06/07 - 12/07)">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Tuần áp dụng <span style="font-weight:400;">(chọn ngày Thứ 2 đầu tuần)</span></label>
+        <input id="lh-f-weekstart" type="date" value="${escapeHtml(d.weekStart)}">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Thời gian bắt đầu đăng ký</label>
+        <input id="lh-f-regstart" type="datetime-local" value="${escapeHtml(d.regStart)}">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Thời gian kết thúc đăng ký</label>
+        <input id="lh-f-regend" type="datetime-local" value="${escapeHtml(d.regEnd)}">
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-top:8px;display:block;">Giới hạn đăng ký tiết <span style="font-weight:400;">(số tiết/tuần học viên được đăng ký)</span></label>
+        <input id="lh-f-limit" type="number" min="0" value="${escapeHtml(String(d.limitTiet))}" style="max-width:160px;">
+        <div style="font-size:11px;color:var(--text-secondary);margin:10px 0 2px;">💡 Lịch tuần này sẽ hiển thị cho học viên đến hết 23:59 Chủ Nhật của tuần áp dụng — tuần mới tạo sẽ chỉ thay thế sau thời điểm đó.</div>
+        <div style="display:flex;gap:10px;margin-top:14px;">
+            <button onclick="_lhApplyMetaEditor()" style="flex:1;background:linear-gradient(135deg,#8b5cf6,#6d28d9);">✅ Áp dụng</button>
+            <button class="ghost" onclick="document.getElementById('modal-container').innerHTML=''" style="flex:0 0 auto;">Đóng</button>
+        </div>
+    </div></div>`;
 }
-window._lhResetEditor = _lhResetEditor;
+window._lhOpenMetaEditor = _lhOpenMetaEditor;
 
-async function _lhSaveWeek() {
+function _lhApplyMetaEditor() {
     const d = window._lhDraft;
     if (!d) return;
     const weekName = document.getElementById('lh-f-name')?.value.trim();
     const weekStart = document.getElementById('lh-f-weekstart')?.value;
-    const regStartRaw = document.getElementById('lh-f-regstart')?.value;
-    const regEndRaw = document.getElementById('lh-f-regend')?.value;
-    const limitTiet = parseInt(document.getElementById('lh-f-limit')?.value || '0', 10);
+    const regStart = document.getElementById('lh-f-regstart')?.value;
+    const regEnd = document.getElementById('lh-f-regend')?.value;
+    const limitTiet = document.getElementById('lh-f-limit')?.value;
     if (!weekName) { toast('Vui lòng nhập tên tuần', 'error'); return; }
     if (!weekStart) { toast('Vui lòng chọn ngày Thứ 2 đầu tuần', 'error'); return; }
-    if (!regStartRaw || !regEndRaw) { toast('Vui lòng nhập đầy đủ thời gian đăng ký', 'error'); return; }
-    const regStart = new Date(regStartRaw).toISOString();
-    const regEnd = new Date(regEndRaw).toISOString();
+    if (!regStart || !regEnd) { toast('Vui lòng nhập đầy đủ thời gian đăng ký', 'error'); return; }
     if (new Date(regEnd) <= new Date(regStart)) { toast('Thời gian kết thúc phải sau thời gian bắt đầu', 'error'); return; }
-    const weekEndsAt = _lhWeekEndsAt(weekStart);
+    d.weekName = weekName; d.weekStart = weekStart; d.regStart = regStart; d.regEnd = regEnd; d.limitTiet = limitTiet;
+    document.getElementById('modal-container').innerHTML = '';
+    _lhRenderAdminWeekView();
+    toast('Đã cập nhật thông tin tuần — nhớ bấm "💾 Lưu lịch học" để hoàn tất', 'success');
+}
+window._lhApplyMetaEditor = _lhApplyMetaEditor;
+
+async function _lhSaveWeek() {
+    const d = window._lhDraft;
+    if (!d) return;
+    if (!d.weekName || !d.weekStart || !d.regStart || !d.regEnd) {
+        toast('Vui lòng thiết lập thông tin tuần trước (bấm "✏️ Sửa thông tin tuần")', 'error');
+        _lhOpenMetaEditor();
+        return;
+    }
+    const regStart = new Date(d.regStart).toISOString();
+    const regEnd = new Date(d.regEnd).toISOString();
+    if (new Date(regEnd) <= new Date(regStart)) { toast('Thời gian kết thúc phải sau thời gian bắt đầu', 'error'); return; }
+    const weekEndsAt = _lhWeekEndsAt(d.weekStart);
     const payload = {
-        weekName, weekStartDate: weekStart, weekEndsAt, regStart, regEnd,
-        limitTiet: limitTiet || 0,
+        weekName: d.weekName, weekStartDate: d.weekStart, weekEndsAt, regStart, regEnd,
+        limitTiet: parseInt(d.limitTiet || 0, 10) || 0,
         createdAt: d.createdAt || new Date().toISOString(),
         days: d.days
     };
@@ -8353,9 +8575,18 @@ async function _lhRenderRegistrantsBody(targetElId, classId, weekId, editable) {
         body.innerHTML = '<div class="empty-state"><span class="empty-icon">👥</span><p>Lớp chưa có học viên</p></div>';
         return;
     }
+    const _stInfo = {
+        open:     { c:'var(--success)', bg:'rgba(16,185,129,0.12)', t:'🟢 Đang mở ĐK' },
+        upcoming: { c:'#f59e0b',        bg:'rgba(245,158,11,0.12)', t:'🟡 Sắp mở ĐK' },
+        closed:   { c:'var(--danger)',  bg:'rgba(239,68,68,0.1)',   t:'🔴 Đã đóng ĐK' },
+        unknown:  { c:'var(--text-secondary)', bg:'var(--surface-alt)', t:'—' }
+    }[_lhWeekRegStatus(week)];
     body.innerHTML = `
     <div class="card" style="margin-bottom:12px;padding:14px;">
-        <div style="font-weight:700;font-size:14px;">${escapeHtml(week.weekName||'')}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div style="font-weight:700;font-size:14px;">${escapeHtml(week.weekName||'')}</div>
+            <span style="font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;background:${_stInfo.bg};color:${_stInfo.c};">${_stInfo.t}</span>
+        </div>
         <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">⏰ ĐK: ${_lhFmtDT(week.regStart)} → ${_lhFmtDT(week.regEnd)} · 🎯 Giới hạn: ${escapeHtml(String(week.limitTiet||0))} tiết</div>
     </div>
     ${members.map(([uid, u]) => {
@@ -8452,46 +8683,132 @@ async function renderTeacherLichHoc(container) {
         <select id="tc-lh-class" onchange="_tcLhOnClassChange(this.value)">
             <option value="">-- Chọn lớp --</option>
         </select>
-        <div id="tc-lh-week-wrap" style="margin-top:10px;display:none;">
-            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);">Chọn tuần</label>
-            <select id="tc-lh-week" onchange="_tcLhOnWeekChange()"></select>
-        </div>
     </div>
     <div id="tc-lh-body"></div>`;
     const classes = await _lhLoadClasses();
     // Giáo viên chỉ được xem lịch học của (các) lớp mình phụ trách
     const myClasses = Object.entries(classes).filter(([, cls]) => cls.teacherId === user.uid);
+    window._tcLhClasses = Object.fromEntries(myClasses);
     const sel = document.getElementById('tc-lh-class');
     if (sel) sel.innerHTML += myClasses.map(([id, cls]) => `<option value="${escapeHtml(id)}">${escapeHtml(cls.name||id)}</option>`).join('') || '<option value="">-- Bạn chưa phụ trách lớp nào --</option>';
 }
 window.renderTeacherLichHoc = renderTeacherLichHoc;
 
 async function _tcLhOnClassChange(classId) {
-    const weekWrap = document.getElementById('tc-lh-week-wrap');
     const body = document.getElementById('tc-lh-body');
-    if (!classId) { if (weekWrap) weekWrap.style.display='none'; if (body) body.innerHTML=''; return; }
+    if (!body) return;
+    if (!classId) { body.innerHTML = ''; return; }
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary);">⏳ Đang tải...</div>';
     const weeks = await _lhLoadWeeksForClass(classId);
     const active = _lhPickActiveWeek(weeks);
     const entries = Object.entries(weeks).sort((a,b) => (b[1].createdAt||'').localeCompare(a[1].createdAt||''));
-    const sel = document.getElementById('tc-lh-week');
-    if (sel) {
-        sel.innerHTML = entries.map(([wid,w]) => `<option value="${escapeHtml(wid)}" ${active && active[0]===wid?'selected':''}>${escapeHtml(w.weekName||wid)}</option>`).join('') || '<option value="">(chưa có tuần)</option>';
-        sel.dataset.classId = classId;
-    }
-    if (weekWrap) weekWrap.style.display = entries.length ? '' : 'none';
-    if (entries.length) _tcLhOnWeekChange();
-    else if (body) body.innerHTML = '<div class="empty-state"><span class="empty-icon">📅</span><p>Lớp chưa có lịch học nào</p></div>';
+    if (!entries.length) { body.innerHTML = '<div class="empty-state"><span class="empty-icon">📅</span><p>Lớp chưa có lịch học nào</p></div>'; return; }
+    window._tcLhCurrent = { classId, weekId: active ? active[0] : entries[0][0], weeks: Object.fromEntries(entries) };
+    body.innerHTML = `<div class="lh-week-strip" id="tc-lh-weekstrip"></div><div id="tc-lh-week-body"></div>`;
+    const strip = document.getElementById('tc-lh-weekstrip');
+    strip.innerHTML = entries.map(([wid,w]) => `<div class="lh-week-chip ${wid===window._tcLhCurrent.weekId?'active':''}" data-wid="${escapeHtml(wid)}">${escapeHtml(w.weekName||wid)}</div>`).join('');
+    strip.querySelectorAll('.lh-week-chip').forEach(chip => {
+        chip.onclick = () => {
+            strip.querySelectorAll('.lh-week-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            window._tcLhCurrent.weekId = chip.dataset.wid;
+            _tcLhRenderWeek();
+        };
+    });
+    _tcLhRenderWeek();
 }
 window._tcLhOnClassChange = _tcLhOnClassChange;
 
-async function _tcLhOnWeekChange() {
-    const sel = document.getElementById('tc-lh-week');
-    const classId = sel?.dataset.classId;
-    const weekId = sel?.value;
-    if (!classId || !weekId) return;
-    await _lhRenderRegistrantsBody('tc-lh-body', classId, weekId, false);
+async function _tcLhRenderWeek() {
+    const cur = window._tcLhCurrent;
+    const body = document.getElementById('tc-lh-week-body');
+    if (!cur || !body) return;
+    const week = cur.weeks[cur.weekId] || {};
+    const regs = await _lhLoadRegs(cur.classId, cur.weekId);
+    cur.week = week; cur.regs = regs;
+    const todayKey = _lhDayKeyForDate(new Date());
+    cur.dayKey = (week.days?.[todayKey]||[]).length ? todayKey
+        : (LH_DAYS_SHORT.find(d => (week.days?.[d.key]||[]).length)?.key || '2');
+
+    const st = _lhWeekRegStatus(week);
+    const stInfo = { open:'🟢 Đang mở ĐK', upcoming:'🟡 Sắp mở ĐK', closed:'🔴 Đã đóng ĐK', unknown:'—' }[st];
+    let totalTiet = 0, totalGanDay = 0;
+    LH_DAYS.forEach(d => (week.days?.[d.key]||[]).forEach(t => { totalTiet++; if (_lhCountConfirmed(regs, d.key, t.id) >= (t.slot||0) * 0.8) totalGanDay++; }));
+
+    body.innerHTML = `
+    <div class="lh-status-card gv">
+        <div class="lh-status-top">
+            <div>
+                <div class="lh-status-title">👨‍🏫 ${escapeHtml((window._tcLhClasses?.[cur.classId]||{}).name || '')} · ${escapeHtml(week.weekName||'')}</div>
+                <div class="lh-status-sub">${totalTiet} tiết trong tuần · ${totalGanDay} tiết sắp/đã đầy chỗ</div>
+            </div>
+            <div class="lh-status-badge">${stInfo}</div>
+        </div>
+    </div>
+    <div class="lh-day-strip" id="tc-lh-daystrip"></div>
+    <div id="tc-lh-tietlist"></div>`;
+
+    _lhBuildDayStrip('tc-lh-daystrip', { ...week.days, __weekStartDate: week.weekStartDate }, cur.dayKey, (k) => { cur.dayKey = k; _tcLhRenderTietList(); });
+    _tcLhPatchDayNums(week.weekStartDate, 'tc-lh-daystrip');
+    _tcLhRenderTietList();
 }
-window._tcLhOnWeekChange = _tcLhOnWeekChange;
+
+function _tcLhPatchDayNums(weekStartDate, elId) {
+    const nums = _lhDayNums(weekStartDate);
+    document.querySelectorAll('#' + elId + ' .lh-day-chip').forEach(chip => {
+        const numEl = chip.querySelector('.d-num');
+        if (numEl && nums[chip.dataset.key]) numEl.textContent = nums[chip.dataset.key];
+    });
+}
+
+function _tcLhRenderTietList() {
+    const cur = window._tcLhCurrent;
+    const el = document.getElementById('tc-lh-tietlist');
+    if (!cur || !el) return;
+    const { week, regs, dayKey, classId, weekId } = cur;
+    const list = week.days?.[dayKey] || [];
+    if (!list.length) {
+        el.innerHTML = `<div style="text-align:center;color:var(--text-secondary);font-size:12.5px;padding:26px 0;">Không có tiết học ngày này</div>`;
+        return;
+    }
+    el.innerHTML = list.map(t => {
+        const node = ((regs[dayKey]||{})[t.id]) || {};
+        const roster = Object.entries(node).sort((a,b) => (a[1].status==='confirmed'?0:1) - (b[1].status==='confirmed'?0:1));
+        const confirmedCount = roster.filter(([,r]) => r.status === 'confirmed').length;
+        const initials = roster.slice(0,4).map(([,r]) => `<span>${escapeHtml((r.name||'?')[0]||'?')}</span>`).join('');
+        return `<div class="lh-tiet-card">${_lhRingSvg(confirmedCount, t.slot)}
+            <div class="lh-tiet-info">
+                <div class="lh-tiet-ma">${escapeHtml(t.ma)}</div>
+                <div class="lh-tiet-time">⏰ ${escapeHtml(t.time)}${t.note ? ' · 📝 ' + escapeHtml(t.note) : ''}</div>
+                ${roster.length ? `<div class="lh-avatar-stack" style="margin-top:5px;">${initials}${roster.length>4?`<span>+${roster.length-4}</span>`:''}</div>` : `<span style="font-size:11px;color:var(--text-secondary);">Chưa có ai đăng ký</span>`}
+            </div>
+            <div class="lh-tiet-action"><button class="lh-btn-view" onclick="_tcLhOpenRoster('${dayKey}','${t.id}')">Xem DS</button></div>
+        </div>`;
+    }).join('');
+}
+
+function _tcLhOpenRoster(dayKey, tietId) {
+    const cur = window._tcLhCurrent;
+    if (!cur) return;
+    const t = (cur.week.days?.[dayKey]||[]).find(x => x.id === tietId);
+    if (!t) return;
+    const node = ((cur.regs[dayKey]||{})[tietId]) || {};
+    const roster = Object.entries(node).sort((a,b) => (a[1].status==='confirmed'?0:1) - (b[1].status==='confirmed'?0:1) || (a[1].time||'').localeCompare(b[1].time||''));
+    const rows = roster.length ? roster.map(([uid,r]) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--border);">
+            <span style="font-size:12.5px;">👤 ${escapeHtml(r.name||uid)}</span>
+            <span style="font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;background:${r.status==='confirmed'?'rgba(16,185,129,0.12)':'rgba(245,158,11,0.14)'};color:${r.status==='confirmed'?'var(--success)':'#f59e0b'};">${r.status==='confirmed'?'Đã ĐK':'Đang chờ'}</span>
+        </div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0;">Chưa có học viên nào đăng ký.</div>';
+    const mc = document.getElementById('modal-container');
+    mc.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.parentElement.innerHTML=''">
+    <div class="modal-box" style="text-align:left;max-width:420px;width:92%;padding:20px;max-height:80vh;overflow-y:auto;">
+        <div style="font-weight:800;font-size:15px;margin-bottom:2px;">${escapeHtml(t.ma)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">⏰ ${escapeHtml(t.time)} · 🪑 ${roster.filter(([,r])=>r.status==='confirmed').length}/${t.slot} chỗ</div>
+        ${rows}
+        <button class="ghost" onclick="document.getElementById('modal-container').innerHTML=''" style="width:100%;margin-top:14px;">Đóng</button>
+    </div></div>`;
+}
+window._tcLhOpenRoster = _tcLhOpenRoster;
 
 // ─── Thông báo lịch học (nhắc tiết hôm nay/ngày mai + giờ đăng ký) ───
 function _lhDayKeyForDate(d) {
@@ -8583,9 +8900,11 @@ window._hvLichHocNotice = _hvLichHocNotice;
 
 // ─── HỌC VIÊN: Lịch học ───
 let _hvLhInterval = null;
+let _hvLhRegsRef = null; // realtime listener cho danh sách đăng ký (để hiện thời gian thực, không cần reset trang)
 
 async function renderHVLichHoc(container) {
     if (_hvLhInterval) { clearInterval(_hvLhInterval); _hvLhInterval = null; }
+    if (_hvLhRegsRef) { try { _hvLhRegsRef.off(); } catch(e) {} _hvLhRegsRef = null; }
     container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);">⏳ Đang tải...</div>';
     const maintMsg = await _vpCheckModuleMaintenance(user?.r, 'lichhoc');
     if (maintMsg) { _vpRenderMaintenanceScreen(container, maintMsg); return; }
@@ -8601,8 +8920,25 @@ async function renderHVLichHoc(container) {
         return;
     }
     const [weekId, week] = active;
-    window._hvLhCurrent = { classId, weekId, week };
-    await _hvLhRender(container);
+    // Ngày mặc định được chọn trên dải ngày: hôm nay nếu nằm trong tuần này, không thì ngày đầu tiên có tiết, không thì Thứ 2.
+    const todayKey = _lhDayKeyForDate(new Date());
+    const defaultDay = (week.days?.[todayKey]||[]).length ? todayKey
+        : (LH_DAYS_SHORT.find(d => (week.days?.[d.key]||[]).length)?.key || '2');
+    window._hvLhCurrent = { classId, weekId, week, regs: {}, dayKey: defaultDay };
+
+    // Lắng nghe realtime danh sách đăng ký: mỗi khi có ai (kể cả chính mình hoặc HV khác)
+    // đăng ký/hủy tiết học, danh sách và số chỗ trống sẽ tự cập nhật ngay, không cần reset/tải lại trang.
+    // Lưu ý: renderHVLichHoc được gọi với các container khác nhau tuỳ màn hình đang mở
+    // (vd 'hv-quanly-body' ở tab Quản lý), nên phải dùng đúng `container` được truyền vào
+    // (qua closure) thay vì id cố định — nếu không, khi container thực có id khác, listener
+    // sẽ tìm nhầm node (hoặc không tìm thấy) và màn hình bị treo mãi ở "Đang tải...".
+    _hvLhRegsRef = fbDB.ref('lichhoc_dk/' + classId + '/' + weekId);
+    _hvLhRegsRef.on('value', (snap) => {
+        if (!window._hvLhCurrent || window._hvLhCurrent.classId !== classId || window._hvLhCurrent.weekId !== weekId) return;
+        window._hvLhCurrent.regs = snap.val() || {};
+        if (document.body.contains(container)) _hvLhRender(container);
+    });
+
     _hvLhInterval = setInterval(_hvLhRenderStatusOnly, 30000);
 }
 window.renderHVLichHoc = renderHVLichHoc;
@@ -8613,144 +8949,179 @@ function _hvLhRenderStatusOnly() {
     const badge = document.getElementById('hv-lh-status-badge');
     if (!badge || !window._hvLhCurrent) return;
     const { week } = window._hvLhCurrent;
-    const now = Date.now();
-    const start = new Date(week.regStart).getTime();
-    const end = new Date(week.regEnd).getTime();
-    if (now < start) {
+    const st = _lhWeekRegStatus(week);
+    if (st === 'upcoming') {
         const cd = _lhCountdownParts(week.regStart);
-        badge.innerHTML = `🔴 Đang đóng — còn ${cd.days} ngày ${cd.hours} giờ ${cd.mins} phút`;
-    } else if (now <= end) {
+        badge.innerHTML = `🔒 Mở ĐK sau ${cd.days}n ${cd.hours}g ${cd.mins}p`;
+    } else if (st === 'open') {
         const cd = _lhCountdownParts(week.regEnd);
-        badge.innerHTML = `🟢 Đang mở — còn ${cd.days} ngày ${cd.hours} giờ ${cd.mins} phút sẽ kết thúc!`;
+        badge.innerHTML = `🟢 Đang mở · còn ${cd.days}n ${cd.hours}g ${cd.mins}p`;
     } else {
-        badge.innerHTML = `🔴 Đã đóng đăng ký`;
+        badge.innerHTML = `🔴 Đã đóng ĐK`;
     }
 }
 
+// Chọn ngày trên dải ngày (day-strip) — chỉ đổi ngày đang xem, không tải lại dữ liệu
+function _hvLhPickDay(dayKey) {
+    if (!window._hvLhCurrent) return;
+    window._hvLhCurrent.dayKey = dayKey;
+    _hvLhRenderTietList();
+}
+window._hvLhPickDay = _hvLhPickDay;
+
 async function _hvLhRender(container) {
-    const { classId, weekId, week } = window._hvLhCurrent;
-    const now = Date.now();
-    const start = new Date(week.regStart).getTime();
-    const end = new Date(week.regEnd).getTime();
-    const notYetOpen = now < start;
-    const closed = now > end;
-    const regs = await _lhLoadRegs(classId, weekId);
+    const { classId, weekId, week, regs: cachedRegs } = window._hvLhCurrent;
+    const st = _lhWeekRegStatus(week);
+    const notYetOpen = st === 'upcoming';
+    const closed = st === 'closed' || st === 'unknown';
+    // Ưu tiên dùng dữ liệu realtime đã có sẵn (từ listener) để hiển thị ngay lập tức;
+    // chỉ gọi lại DB nếu vì lý do nào đó chưa có (ví dụ listener chưa kịp trả dữ liệu lần đầu).
+    const regs = cachedRegs || await _lhLoadRegs(classId, weekId);
+    window._hvLhCurrent.regs = regs;
     const uid = _hvLhUid();
     const myRegsRaw = _lhFindUidRegs(regs, uid);
     const myConfirmedCount = myRegsRaw.filter(r => r.status === 'confirmed').length;
     const limitTiet = week.limitTiet || 0;
 
+    const tietMap = {};
+    LH_DAYS.forEach(day => (week.days?.[day.key]||[]).forEach(t => { tietMap[t.id] = { ...t, dayKey: day.key, dayLabel: day.label }; }));
+    const myList = myRegsRaw.map(r => ({...r, tiet: tietMap[r.tietId]})).filter(r => r.tiet);
+    const myListHtml = myList.length ? myList.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(99,102,241,0.06);border:1px solid var(--border);margin-bottom:6px;gap:8px;">
+            <span style="font-size:12.5px;min-width:0;"><b>${escapeHtml(r.tiet.ma)}</b> · ${escapeHtml(r.tiet.dayLabel)} · ⏰ ${escapeHtml(r.tiet.time)} ${r.status==='waiting'?'<span style="color:#f59e0b;font-weight:700;">(Đang chờ)</span>':''}</span>
+            ${!closed && !notYetOpen ? `<button onclick="_hvLhCancel('${r.dayKey}','${r.tietId}')" class="danger" style="padding:4px 10px;font-size:11px;min-height:unset;flex-shrink:0;">Hủy</button>` : ''}
+        </div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);">Bạn chưa đăng ký tiết nào.</div>';
+
     if (notYetOpen) {
         const cd = _lhCountdownParts(week.regStart);
         container.innerHTML = `
-        <div class="card" style="padding:18px;text-align:center;">
-            <div style="font-weight:800;font-size:15px;margin-bottom:6px;">${escapeHtml(week.weekName||'')}</div>
-            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Thời gian đăng ký: còn ${cd.days} ngày ${cd.hours} giờ ${cd.mins} phút</div>
-            <div id="hv-lh-status-badge" style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(239,68,68,0.12);color:var(--danger);">🔴 Đang đóng</div>
-            <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">Chưa tới thời gian đăng ký lịch học!</div>
+        <div class="lh-status-card">
+            <div class="lh-status-top">
+                <div>
+                    <div class="lh-status-title">📅 ${escapeHtml(week.weekName||'')}</div>
+                    <div class="lh-status-sub">Mở ĐK sau ${cd.days} ngày ${cd.hours} giờ ${cd.mins} phút</div>
+                </div>
+                <div id="hv-lh-status-badge" class="lh-status-badge">🔒 Chưa mở</div>
+            </div>
+        </div>
+        <div class="card" style="padding:14px;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📌 Tiết bạn đã đăng ký (tuần trước)</div>
+            ${myListHtml}
         </div>`;
         return;
     }
 
-    const tietMap = {};
-    LH_DAYS.forEach(day => (week.days?.[day.key]||[]).forEach(t => { tietMap[t.id] = { ...t, dayKey: day.key, dayLabel: day.label }; }));
-
     // Đăng ký đã đóng: chỉ hiển thị các tiết học viên đã đăng ký, không hiển thị toàn bộ lịch tuần
     if (closed) {
-        const myListClosed = myRegsRaw
-            .map(r => ({...r, tiet: tietMap[r.tietId]}))
-            .filter(r => r.tiet && r.status === 'confirmed');
-        const myListClosedHtml = myListClosed.length ? myListClosed.map(r => `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(99,102,241,0.06);border:1px solid var(--border);margin-bottom:6px;">
-                <span style="font-size:12.5px;"><b>${escapeHtml(r.tiet.ma)}</b> · ${escapeHtml(r.tiet.dayLabel)} · ⏰ ${escapeHtml(r.tiet.time)}</span>
-            </div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);">Bạn chưa đăng ký tiết nào.</div>';
-
         container.innerHTML = `
-        <div class="card" style="padding:16px;margin-bottom:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-                <div style="font-weight:800;font-size:15px;">${escapeHtml(week.weekName||'')}</div>
-                <div id="hv-lh-status-badge" style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(239,68,68,0.12);color:var(--danger);">🔴 Đã đóng đăng ký</div>
+        <div class="lh-status-card" style="background:linear-gradient(135deg,#64748b,#334155);">
+            <div class="lh-status-top">
+                <div><div class="lh-status-title">📅 ${escapeHtml(week.weekName||'')}</div></div>
+                <div id="hv-lh-status-badge" class="lh-status-badge">🔴 Đã đóng ĐK</div>
             </div>
         </div>
         <div class="card" style="padding:14px;">
             <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📌 Tiết bạn đã đăng ký</div>
-            ${myListClosedHtml}
+            ${myListHtml}
         </div>`;
         return;
     }
 
-    const dayBlocks = LH_DAYS.map(day => {
-        const list = week.days?.[day.key] || [];
-        if (!list.length) return `<div style="margin-bottom:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">${day.label}</div><div style="font-size:12px;color:var(--text-secondary);padding:4px 0;">Không có tiết</div></div>`;
-        return `<div style="margin-bottom:14px;">
-            <div style="font-weight:700;font-size:13px;margin-bottom:6px;">${day.label}</div>
-            ${list.map(t => {
-                const confirmedCount = _lhCountConfirmed(regs, day.key, t.id);
-                const mine = (((regs[day.key]||{})[t.id]||{})[uid]);
-                const isFull = confirmedCount >= t.slot;
-                let actionBtn;
-                if (mine) {
-                    actionBtn = `<button onclick="_hvLhCancel('${day.key}','${t.id}')" class="danger" style="padding:5px 12px;font-size:11px;min-height:unset;">${mine.status==='waiting'?'Hủy chờ':'Hủy ĐK'}</button>`;
-                } else if (closed) {
-                    actionBtn = `<span style="font-size:11px;color:var(--text-secondary);">Đã đóng</span>`;
-                } else if (isFull) {
-                    actionBtn = `<button onclick="_hvLhRegister('${day.key}','${t.id}')" style="padding:5px 12px;font-size:11px;min-height:unset;background:#f59e0b;">Đầy (vào chờ)</button>`;
-                } else {
-                    actionBtn = `<button onclick="_hvLhRegister('${day.key}','${t.id}')" style="padding:5px 12px;font-size:11px;min-height:unset;background:var(--success);">ĐK</button>`;
-                }
-                return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:10px;background:var(--surface-alt);border:1px solid var(--border);margin-bottom:6px;gap:8px;">
-                    <div style="font-size:12.5px;min-width:0;">
-                        <b>${escapeHtml(t.ma)}</b> · ⏰ ${escapeHtml(t.time)} · 🪑 ${confirmedCount}/${t.slot}
-                        ${mine ? `<span style="color:${mine.status==='waiting'?'#f59e0b':'var(--success)'};font-weight:700;"> · ${mine.status==='waiting'?'Đang chờ':'Đã đăng ký'}</span>` : ''}
-                        ${t.note ? `<div style="color:var(--text-secondary);font-size:11px;">📝 ${escapeHtml(t.note)}</div>` : ''}
-                    </div>
-                    ${actionBtn}
-                </div>`;
-            }).join('')}
-        </div>`;
-    }).join('');
-
-    const myList = myRegsRaw.map(r => ({...r, tiet: tietMap[r.tietId]})).filter(r => r.tiet);
-    const myListHtml = myList.length ? myList.map(r => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(99,102,241,0.06);border:1px solid var(--border);margin-bottom:6px;">
-            <span style="font-size:12.5px;"><b>${escapeHtml(r.tiet.ma)}</b> · ${escapeHtml(r.tiet.dayLabel)} · ⏰ ${escapeHtml(r.tiet.time)} ${r.status==='waiting'?'<span style="color:#f59e0b;font-weight:700;">(Đang chờ)</span>':''}</span>
-            ${!closed ? `<button onclick="_hvLhCancel('${r.dayKey}','${r.tietId}')" class="danger" style="padding:4px 10px;font-size:11px;min-height:unset;">Hủy</button>` : ''}
-        </div>`).join('') : '<div style="font-size:12px;color:var(--text-secondary);">Bạn chưa đăng ký tiết nào.</div>';
-
-    const reminder = (!closed && limitTiet > 0 && myConfirmedCount < limitTiet)
-        ? `<div style="margin-top:8px;padding:8px 12px;border-radius:10px;background:rgba(245,158,11,0.1);color:#f59e0b;font-size:12px;font-weight:600;">⚠️ Bạn cần đăng ký đủ ${limitTiet} tiết/tuần (đã đăng ký ${myConfirmedCount} tiết)</div>`
+    const progress = limitTiet > 0
+        ? `<div class="lh-progress-track"><div class="lh-progress-fill" style="width:${Math.min(100, Math.round(myConfirmedCount/limitTiet*100))}%;"></div></div>
+           <div class="lh-progress-label">Đã đăng ký ${myConfirmedCount}/${limitTiet} tiết bắt buộc</div>`
+        : '';
+    const reminder = (limitTiet > 0 && myConfirmedCount < limitTiet)
+        ? `<div style="margin-top:10px;padding:8px 12px;border-radius:10px;background:rgba(245,158,11,0.14);color:#f59e0b;font-size:12px;font-weight:600;">⚠️ Bạn cần đăng ký đủ ${limitTiet} tiết/tuần (đã đăng ký ${myConfirmedCount} tiết)</div>`
         : '';
 
     container.innerHTML = `
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div style="font-weight:800;font-size:15px;">${escapeHtml(week.weekName||'')}</div>
-            <div id="hv-lh-status-badge" style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;background:${closed?'rgba(239,68,68,0.12)':'rgba(16,185,129,0.12)'};color:${closed?'var(--danger)':'var(--success)'};"></div>
+    <div class="lh-status-card">
+        <div class="lh-status-top">
+            <div>
+                <div class="lh-status-title">📅 ${escapeHtml(week.weekName||'')}</div>
+                <div class="lh-status-sub">Hạn đăng ký: ${_lhFmtDT(week.regEnd)}</div>
+            </div>
+            <div id="hv-lh-status-badge" class="lh-status-badge"></div>
         </div>
+        ${progress}
         ${reminder}
     </div>
-    <div>${dayBlocks}</div>
-    <div class="card" style="padding:14px;margin-top:8px;">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📌 Tiết bạn đã đăng ký</div>
-        ${myListHtml}
-    </div>`;
+    <div class="lh-day-strip" id="hv-lh-daystrip"></div>
+    <div id="hv-lh-tietlist"></div>
+    <div class="lh-section-h">📌 Tiết của bạn tuần này</div>
+    <div class="lh-sheet-peek">${myListHtml}</div>`;
+
+    const weekDaysWithStart = { ...week.days, __weekStartDate: week.weekStartDate };
+    window._lhDraft = window._lhDraft || null; // không dùng draft ở phía HV, giữ nums dùng chung an toàn
+    _lhBuildDayStrip('hv-lh-daystrip', { ...week.days, __weekStartDate: week.weekStartDate }, window._hvLhCurrent.dayKey, _hvLhPickDay);
+    // dùng weekStartDate thật cho số ngày (thay vì _lhDraft, chỉ admin mới có draft)
+    _hvLhPatchDayNums(week.weekStartDate);
+    _hvLhRenderTietList();
     _hvLhRenderStatusOnly();
+}
+
+// _lhBuildDayStrip mặc định lấy số ngày từ window._lhDraft (dùng ở Admin). Ở phía HV/GV ta patch lại số ngày
+// từ weekStartDate thật của tuần đang xem, để tránh phụ thuộc vào draft của Admin.
+function _hvLhPatchDayNums(weekStartDate) {
+    const nums = _lhDayNums(weekStartDate);
+    document.querySelectorAll('#hv-lh-daystrip .lh-day-chip').forEach(chip => {
+        const key = chip.dataset.key;
+        const numEl = chip.querySelector('.d-num');
+        if (numEl && nums[key]) numEl.textContent = nums[key];
+    });
+}
+
+function _hvLhRenderTietList() {
+    const cur = window._hvLhCurrent;
+    const el = document.getElementById('hv-lh-tietlist');
+    if (!cur || !el) return;
+    const { week, regs, dayKey } = cur;
+    const uid = _hvLhUid();
+    const list = week.days?.[dayKey] || [];
+    if (!list.length) {
+        el.innerHTML = `<div style="text-align:center;color:var(--text-secondary);font-size:12.5px;padding:26px 0;">Không có tiết học ngày này</div>`;
+        return;
+    }
+    el.innerHTML = list.map(t => {
+        const confirmedCount = _lhCountConfirmed(regs, dayKey, t.id);
+        const mine = (((regs[dayKey]||{})[t.id]||{})[uid]);
+        const isFull = confirmedCount >= t.slot;
+        let action, tag = '';
+        if (mine) {
+            tag = mine.status === 'waiting'
+                ? `<span class="lh-tiet-tag lh-tag-wait">⏳ Đang chờ</span>`
+                : `<span class="lh-tiet-tag lh-tag-mine">✓ Đã đăng ký</span>`;
+            action = `<div class="lh-tiet-action"><button class="lh-btn-mine" onclick="_hvLhCancel('${dayKey}','${t.id}')">${mine.status==='waiting'?'Hủy chờ':'Hủy ĐK'}</button></div>`;
+        } else if (isFull) {
+            action = `<div class="lh-tiet-action"><button class="lh-btn-full" onclick="_hvLhRegister('${dayKey}','${t.id}')">Đầy · vào chờ</button></div>`;
+        } else {
+            action = `<div class="lh-tiet-action"><button class="lh-btn-dk" onclick="_hvLhRegister('${dayKey}','${t.id}')">Đăng ký</button></div>`;
+        }
+        return `<div class="lh-tiet-card">${_lhRingSvg(confirmedCount, t.slot)}
+            <div class="lh-tiet-info">
+                <div class="lh-tiet-ma">${escapeHtml(t.ma)}</div>
+                <div class="lh-tiet-time">⏰ ${escapeHtml(t.time)}${t.note ? ' · 📝 ' + escapeHtml(t.note) : ''}</div>
+                ${tag}
+            </div>
+            ${action}
+        </div>`;
+    }).join('');
 }
 
 async function _hvLhRegister(dayKey, tietId) {
     const cur = window._hvLhCurrent;
     if (!cur) return;
     const { classId, weekId, week } = cur;
-    const now = Date.now();
-    if (now > new Date(week.regEnd).getTime() || now < new Date(week.regStart).getTime()) { toast('Đã ngoài thời gian đăng ký', 'error'); return; }
+    if (_lhWeekRegStatus(week) !== 'open') { toast('Đã ngoài thời gian đăng ký', 'error'); return; }
     const tiet = (week.days?.[dayKey]||[]).find(t => t.id === tietId);
     if (!tiet) return;
     const uid = _hvLhUid();
     const status = await _lhRegister(classId, weekId, dayKey, tietId, uid, user?.n || '', tiet.slot);
     toast(status === 'confirmed' ? 'Đăng ký thành công!' : 'Đã hết slot — bạn đang ở danh sách chờ', status === 'confirmed' ? 'success' : 'error');
     window._hvLastLichHocNotice = null;
-    const container = document.getElementById('hv-hoctap-body');
-    if (container) await _hvLhRender(container);
+    // Không cần tự render lại ở đây: listener realtime (_hvLhRegsRef) sẽ tự động
+    // nhận thay đổi từ Firebase và cập nhật giao diện ngay lập tức.
 }
 window._hvLhRegister = _hvLhRegister;
 
@@ -8762,8 +9133,8 @@ async function _hvLhCancel(dayKey, tietId) {
     await _lhCancel(classId, weekId, dayKey, tietId, uid);
     toast('Đã hủy đăng ký', 'success');
     window._hvLastLichHocNotice = null;
-    const container = document.getElementById('hv-hoctap-body');
-    if (container) await _hvLhRender(container);
+    // Không cần tự render lại ở đây: listener realtime (_hvLhRegsRef) sẽ tự động
+    // nhận thay đổi từ Firebase và cập nhật giao diện ngay lập tức.
 }
 window._hvLhCancel = _hvLhCancel;
 
