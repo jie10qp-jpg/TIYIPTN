@@ -5467,11 +5467,24 @@ function appPersist(name, opts){
     // opts.silent=true: không tự hiện toast ở đây (dành cho nơi gọi tự hiện toast riêng,
     // tránh 2 toast đè lên nhau khiến người dùng không đọc kịp lý do lỗi thật).
     return sb.functions.invoke('save-state', { body: { name, value } })
-      .then(({error, data})=>{
+      .then(async ({error, data})=>{
         if(error){
-          console.error('[Supabase] Lưu "'+name+'" thất bại:', error.message);
-          if(!opts.silent) showToast('⚠️ Lưu "'+name+'" lên máy chủ thất bại: '+error.message+' — thay đổi có thể KHÔNG được giữ lại.');
-          return {ok:false, message: error.message};
+          // [FIX-THÔNG-BÁO-LỖI-CHUNG-CHUNG] supabase-js luôn trả error.message = chuỗi cứng
+          // "Edge Function returned a non-2xx status code" khi hàm trả về mã lỗi (4xx/5xx),
+          // BẤT KỂ Edge Function thực sự trả lý do gì trong body JSON. Lý do thật nằm trong
+          // error.context (đối tượng Response), phải tự đọc mới lấy được, nếu không người
+          // dùng chỉ thấy câu vô nghĩa này và không biết vì sao (thiếu quyền, chưa đăng nhập,
+          // token hết hạn, lỗi DB...) mà tưởng nhầm là lỗi mạng/CORS.
+          let realMessage = error.message;
+          try{
+            if(error.context && typeof error.context.json === 'function'){
+              const body = await error.context.clone().json();
+              if(body && body.error) realMessage = body.error;
+            }
+          }catch(e){ /* body không phải JSON hợp lệ -> giữ nguyên error.message */ }
+          console.error('[Supabase] Lưu "'+name+'" thất bại:', realMessage);
+          if(!opts.silent) showToast('⚠️ Lưu "'+name+'" lên máy chủ thất bại: '+realMessage+' — thay đổi có thể KHÔNG được giữ lại.');
+          return {ok:false, message: realMessage};
         }
         if(data && data.error){
           console.error('[Supabase] Lưu "'+name+'" bị từ chối:', data.error);
