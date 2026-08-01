@@ -5454,41 +5454,39 @@ function appRegisterState(name, getFn, setFn, onSync){
 // supabase-schema.sql), nên ghi trực tiếp kiểu cũ sẽ luôn bị RLS từ chối. Giờ MỌI thao
 // tác ghi đều đi qua Edge Function "save-state", hàm đó tự kiểm tra quyền theo email
 // thật (JWT) trước khi ghi — xem supabase/functions/save-state/index.ts.
-function appPersist(name){
-  const entry = APP_STATE_REGISTRY[name]; if(!entry) return Promise.resolve(true);
+function appPersist(name, opts){
+  opts = opts || {};
+  const entry = APP_STATE_REGISTRY[name]; if(!entry) return Promise.resolve({ok:true, message:null});
   const value = entry.get();
   try{ localStorage.setItem(APP_LS_PREFIX+name, JSON.stringify(value)); }
   catch(e){ /* localStorage đầy hoặc bị chặn -> bỏ qua, không chặn luồng chính */ }
   if(sb){
-    // [FIX-MẤT-DỮ-LIỆU-KHI-XOÁ/SỬA] Trước đây lời gọi Edge Function chạy kiểu "bắn rồi
-    // quên" (không return, không await): nếu server từ chối ghi (vd JWT không đủ quyền
-    // admin, RLS chặn, mất mạng...) thì lỗi CHỈ hiện ở console — người dùng không hề biết,
-    // vì localStorage/UI đã đổi nên tưởng thao tác (xoá/thêm/sửa) đã xong. Nhưng dữ liệu
-    // THẬT trên Supabase vẫn còn nguyên -> đăng xuất/đăng nhập lại (appRestore() luôn đọc
-    // từ Supabase trước) là dữ liệu cũ "sống lại" (ví dụ học viên đã xoá lại hiện ra).
-    // Giờ hàm này: (1) luôn báo toast rõ ràng khi lưu thất bại, (2) trả về Promise<boolean>
-    // để nơi gọi quan trọng (vd deleteStudentAdmin) có thể await và tự HOÀN TÁC nếu cần.
+    // [FIX-MẤT-DỮ-LIỆU-KHI-XOÁ/SỬA] Xem giải thích đầy đủ ở lần sửa trước. Giờ trả về
+    // {ok, message} thay vì chỉ true/false để nơi gọi (vd deleteStudentAdmin) hiện được
+    // NGUYÊN VĂN lý do lỗi thật cho người dùng, thay vì chỉ 1 câu chung chung.
+    // opts.silent=true: không tự hiện toast ở đây (dành cho nơi gọi tự hiện toast riêng,
+    // tránh 2 toast đè lên nhau khiến người dùng không đọc kịp lý do lỗi thật).
     return sb.functions.invoke('save-state', { body: { name, value } })
       .then(({error, data})=>{
         if(error){
           console.error('[Supabase] Lưu "'+name+'" thất bại:', error.message);
-          showToast('⚠️ Lưu "'+name+'" lên máy chủ thất bại: '+error.message+' — thay đổi có thể KHÔNG được giữ lại.');
-          return false;
+          if(!opts.silent) showToast('⚠️ Lưu "'+name+'" lên máy chủ thất bại: '+error.message+' — thay đổi có thể KHÔNG được giữ lại.');
+          return {ok:false, message: error.message};
         }
         if(data && data.error){
           console.error('[Supabase] Lưu "'+name+'" bị từ chối:', data.error);
-          showToast('⚠️ Máy chủ từ chối lưu "'+name+'": '+data.error+' — thay đổi có thể KHÔNG được giữ lại.');
-          return false;
+          if(!opts.silent) showToast('⚠️ Máy chủ từ chối lưu "'+name+'": '+data.error+' — thay đổi có thể KHÔNG được giữ lại.');
+          return {ok:false, message: data.error};
         }
-        return true;
+        return {ok:true, message:null};
       })
       .catch(e=>{
         console.error('[Supabase] Lưu "'+name+'" lỗi mạng:', e);
-        showToast('⚠️ Mất kết nối khi lưu "'+name+'" — thay đổi có thể KHÔNG được giữ lại, hãy thử lại.');
-        return false;
+        if(!opts.silent) showToast('⚠️ Mất kết nối khi lưu "'+name+'" — thay đổi có thể KHÔNG được giữ lại, hãy thử lại.');
+        return {ok:false, message: (e && e.message) || String(e)};
       });
   }
-  return Promise.resolve(true);
+  return Promise.resolve({ok:true, message:null});
 }
 // Đọc từ Supabase trước (nguồn dữ liệu thật, dùng chung cho mọi thiết bị); nếu mất mạng/lỗi
 // thì rơi xuống bản sao localStorage gần nhất để app vẫn dùng được offline.
@@ -5513,8 +5511,8 @@ async function appRestore(name){
 }
 async function appRestoreAll(){ await Promise.all(Object.keys(APP_STATE_REGISTRY).map(appRestore)); }
 // Gọi sau MỌI lần thêm/sửa/xoá dữ liệu: lưu local + Supabase + báo các tab cùng máy kèm dữ liệu thật.
-function appSave(name){
-  const savePromise = appPersist(name);
+function appSave(name, opts){
+  const savePromise = appPersist(name, opts);
   const entry = APP_STATE_REGISTRY[name];
   if(appBus && entry){ try{ appBus.postMessage({state:name, value:entry.get()}); }catch(e){} }
   return savePromise; // các lời gọi cũ không await vẫn chạy y như trước (fire-and-forget)
@@ -7973,11 +7971,11 @@ async function deleteStudentAdmin(id){
   const removed = adminStudents[idx];
   adminStudents = adminStudents.filter(s=>s.id!==id);
   renderStudentTable();
-  const ok = await appSave('adminStudents');
-  if(ok===false){
+  const res = await appSave('adminStudents', {silent:true});
+  if(res && res.ok===false){
     adminStudents.splice(idx, 0, removed);
     renderStudentTable();
-    showToast('❌ Xoá học viên KHÔNG thành công (lỗi lưu dữ liệu lên máy chủ). Học viên đã được khôi phục — vui lòng thử lại.');
+    showToast('❌ Xoá học viên KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — học viên đã được khôi phục.');
     return;
   }
   showToast('🗑️ Đã xoá học viên');
