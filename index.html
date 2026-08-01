@@ -2628,7 +2628,7 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
   <div class="modal">
     <button class="modal-close" onclick="closeModal('endClassModalBg')">✕</button>
     <h3 id="ecmTitle">Kết thúc khoá học</h3>
-    <p style="color:var(--ink-soft);font-size:.88rem;">Để xác nhận kết thúc khoá học, vui lòng nhập lại mã lớp.</p>
+    <p style="color:var(--ink-soft);font-size:.88rem;">⚠️ Hành động này sẽ <b>XOÁ HẲN lớp này</b> khỏi hệ thống (không thể hoàn tác). Học viên đang thuộc lớp sẽ trở thành "chưa có lớp" — vào mục Quản lý học viên để gán lớp mới cho các em. Lịch sử điểm danh/lương/bài học liên quan vẫn được giữ nguyên. Để xác nhận, vui lòng nhập lại mã lớp.</p>
     <div class="field"><label>Mã lớp</label><input id="ecmCodeInput" maxlength="4" inputmode="numeric" placeholder="Nhập mã lớp"></div>
     <button class="btn btn-primary" style="width:100%;background:linear-gradient(135deg,#e0665c,#c0392b);" onclick="confirmEndClass()">XÁC NHẬN KẾT THÚC</button>
   </div>
@@ -4245,6 +4245,13 @@ function enterPortal(role, name){
     const rec = currentStudentRecord();
     const cls = rec && adminClasses.find(c=>c.id===rec.classId);
     sub = cls ? `Lớp ${cls.name}` : '';
+  } else if(role==='teacher'){
+    // [FIX-HARDCODE-SUB-GV] Trước đây roleConfig.teacher.sub là chuỗi cứng "Quản lý: HSK3, HSK4"
+    // (dữ liệu mẫu lúc demo), không bao giờ đổi theo lớp thật đã gán cho giáo viên. Giờ tính
+    // động từ adminTeachers2[].classIds giống cách trang "Tài chính - GV" đã làm (tcGvRender).
+    const rec = currentTeacherRecord();
+    const classNames = rec ? (rec.classIds||[]).map(id=>{const c=adminClasses.find(x=>x.id===id); return c?c.name:null;}).filter(Boolean).join(', ') : '';
+    sub = classNames ? `Quản lý: ${classNames}` : 'Chưa được gán lớp';
   }
   document.getElementById('portalTitle').innerHTML = `${qdEsc(cfg.title)}<small>${qdEsc(sub)}</small>`;
   document.getElementById('portalUserName').textContent = name;
@@ -4378,6 +4385,16 @@ function switchPane(id, btnEl){
   if(id==='pane-tinnhan' && typeof msgOnOpenPane==='function') msgOnOpenPane();
   if(id==='pane-qc' && typeof populateQcNotifSelect==='function') populateQcNotifSelect();
   if(id==='pane-bcb-admin' && typeof bcbRenderAdmin==='function') bcbRenderAdmin();
+  // [FIX-BẢNG-QUẢN-LÝ-KHÔNG-TỰ-LÀM-MỚI] Trước đây pane-qllop/pane-qlhv/pane-qlgv là 3 trang DUY
+  // NHẤT không có xử lý riêng khi mở (khác mọi pane khác ở dưới đều tự render lại). Bảng chỉ được
+  // vẽ lại ngay sau khi chính Admin đó thêm/sửa/xoá trên CÙNG 1 lượt thao tác; nếu dữ liệu được
+  // cập nhật từ nơi khác (tab khác, thiết bị khác qua realtime) trong lúc Admin không đứng ở trang
+  // này, hoặc lần đầu mở trang chưa từng render, bảng có thể hiện SAI/CŨ (vd giáo viên vừa thêm
+  // "không thấy" dù đã lưu thành công) cho tới khi F5 lại trang. Giờ luôn vẽ lại từ dữ liệu mới
+  // nhất mỗi lần Admin mở/quay lại 3 trang này.
+  if(id==='pane-qllop' && typeof renderClassTable==='function') renderClassTable();
+  if(id==='pane-qlhv' && typeof renderStudentTable==='function') renderStudentTable();
+  if(id==='pane-qlgv' && typeof renderTeacherTable2==='function') renderTeacherTable2();
   if(id==='pane-qllich' && typeof lichEnterPane==='function') lichEnterPane();
   if(id==='pane-diemdanh-admin' && typeof ddAdminEnterPane==='function') ddAdminEnterPane();
   if(id==='pane-lich' && typeof lichPaneEnter==='function') lichPaneEnter();
@@ -7928,16 +7945,58 @@ function openEndClass(classId){
   document.getElementById('ecmCodeInput').value = '';
   openModal('endClassModalBg');
 }
-function confirmEndClass(){
-  const c = adminClasses.find(c=>c.id===currentClassForEnd);
-  if(!c) return;
+// [FIX-KẾT-THÚC-KHOÁ-HỌC-XOÁ-LỚP] Theo yêu cầu: "Kết thúc khoá học" giờ XOÁ HẲN lớp khỏi
+// adminClasses (trước đây chỉ đánh dấu ended=true và giữ lại). Khi xoá:
+//  - Học viên đang thuộc lớp này -> classId được gỡ về null ("mồ côi lớp"), renderStudentTable()
+//    đã tự hiển thị "—" cho học viên không có lớp (xem cột "Lớp"), nên Admin thấy ngay và có thể
+//    vào Quản lý học viên gán lớp mới. KHÔNG tự xoá học viên.
+//  - Giáo viên đang phụ trách lớp -> gỡ id lớp này khỏi classIds của giáo viên đó.
+//  - CHỦ Ý giữ nguyên lịch sử điểm danh (diemDanhList/diemDanhGVList), lương (salaryHistory),
+//    bài học (kcLessons/kcClassCourse), buổi học (tietHocList/lichHocList) đã gắn với lớp này —
+//    giống hệt cách "xoá học viên"/"xoá giáo viên" hiện có KHÔNG xoá lịch sử liên quan của họ.
+//    Các màn hình liên quan (vd nhóm chat lớp) đã tự xử lý an toàn khi classId trỏ tới lớp không
+//    còn tồn tại (xem comment "mồ côi" ở appSyncAdminSchoolUi/msgSyncAllGroups).
+//  - Dùng pattern xoá-lạc-quan-rồi-await-rồi-rollback-nếu-lỗi giống deleteStudentAdmin/
+//    deleteTeacherAdmin2, để không đánh lừa Admin khi lưu lên Supabase thất bại.
+async function confirmEndClass(){
+  const idx = adminClasses.findIndex(c=>c.id===currentClassForEnd);
+  if(idx===-1) return;
+  const c = adminClasses[idx];
   const input = document.getElementById('ecmCodeInput').value.trim();
   if(input !== c.code){ showToast('⚠️ Mã lớp không đúng, vui lòng thử lại'); return; }
-  c.ended = true;
-  appSave('adminClasses');
+
+  // snapshot để khôi phục nếu lưu thất bại
+  const orphanedStudents = adminStudents.filter(s=>s.classId===c.id);
+  const studentSnapshot = orphanedStudents.map(s=>({id:s.id, classId:s.classId}));
+  const linkedTeacher = c.teacherId ? adminTeachers2.find(t=>t.id===c.teacherId) : null;
+  const teacherSnapshot = linkedTeacher ? {id:linkedTeacher.id, classIds:(linkedTeacher.classIds||[]).slice()} : null;
+
+  adminClasses = adminClasses.filter(x=>x.id!==c.id);
+  orphanedStudents.forEach(s=>{ s.classId = null; });
+  if(linkedTeacher && Array.isArray(linkedTeacher.classIds)) linkedTeacher.classIds = linkedTeacher.classIds.filter(id=>id!==c.id);
+
   closeModal('endClassModalBg');
   renderClassTable();
-  showToast(`✅ Đã kết thúc khoá học "${qdEsc(c.name)}"`);
+  renderStudentTable();
+  if(typeof renderTeacherTable2==='function') renderTeacherTable2();
+
+  const saves = [appSave('adminClasses', {silent:true}), appSave('adminStudents', {silent:true})];
+  if(linkedTeacher) saves.push(appSave('adminTeachers2', {silent:true}));
+  const results = await Promise.all(saves);
+  const failed = results.find(r=>r && r.ok===false);
+  if(failed){
+    // khôi phục đúng như trước khi xoá
+    adminClasses.splice(idx, 0, c);
+    studentSnapshot.forEach(snap=>{ const s=adminStudents.find(x=>x.id===snap.id); if(s) s.classId = snap.classId; });
+    if(teacherSnapshot){ const t=adminTeachers2.find(x=>x.id===teacherSnapshot.id); if(t) t.classIds = teacherSnapshot.classIds; }
+    renderClassTable();
+    renderStudentTable();
+    if(typeof renderTeacherTable2==='function') renderTeacherTable2();
+    showToast('❌ Kết thúc khoá học KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — lớp đã được khôi phục.');
+    return;
+  }
+  const orphanNote = orphanedStudents.length ? ` — ${orphanedStudents.length} học viên đang "chưa có lớp", vào Quản lý học viên để gán lớp mới.` : '';
+  showToast(`✅ Đã xoá lớp "${qdEsc(c.name)}"${orphanNote}`);
 }
 
 /* ----- Học viên ----- */
