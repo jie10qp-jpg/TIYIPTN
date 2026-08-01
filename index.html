@@ -4993,13 +4993,23 @@ function clearAdForm(){
   document.getElementById('qcLink').value='';
 }
 
-function deleteAd(id){
+async function deleteAd(id){
   if(!confirm('Bạn có chắc muốn xoá quảng cáo này không?')) return;
+  const idx = adList.findIndex(a=>a.id===id);
+  if(idx===-1) return;
+  const removed = adList[idx];
   adList = adList.filter(a=>a.id!==id);
-  appSave('adList');
   if(editingAdId===id) cancelEditAd();
   renderAdBanners();
   renderAdHistory();
+  const res = await appSave('adList', {silent:true});
+  if(res && res.ok===false){
+    adList.splice(idx, 0, removed);
+    renderAdBanners();
+    renderAdHistory();
+    showToast('❌ Xoá quảng cáo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
   showToast('🗑️ Đã xoá quảng cáo');
 }
 function assignTask(){
@@ -5124,6 +5134,7 @@ function handleNotifSubmit(){
     draft.scheduledAt = new Date(at).getTime();
     draft.status = 'scheduled';
     notifications.unshift(draft);
+    appSave('notifications');
     clearNotifForm();
     renderNotifAdminHistory();
     scheduleNotifTimer(draft.id);
@@ -5182,6 +5193,7 @@ function notifCountdownEdit(){
   if(notifDraft._fromSchedule){
     if(notifDraft._timer) clearTimeout(notifDraft._timer);
     notifications = notifications.filter(x=>x.id!==notifDraft.id);
+    appSave('notifications');
     renderNotifAdminHistory();
   }
   showToast('✏️ Đã huỷ đếm ngược, bạn có thể chỉnh sửa lại nội dung');
@@ -5195,6 +5207,7 @@ function publishNotif(draft){
   draft.read=false;
   notifications.unshift(draft);
   cleanupOldNotifications();
+  appSave('notifications');
   clearNotifForm();
   renderNotifAdminHistory();
   renderNotifList();
@@ -5246,14 +5259,25 @@ function renderNotifAdminHistory(){
     </div>`;
   }).join('');
 }
-function deleteNotif(id){
+async function deleteNotif(id){
   if(!confirm('Bạn có chắc muốn xoá thông báo này không?')) return;
-  const n = notifications.find(x=>x.id===id);
-  if(n && n._timer) clearTimeout(n._timer);
+  const idx = notifications.findIndex(x=>x.id===id);
+  if(idx===-1) return;
+  const removed = notifications[idx];
+  if(removed._timer) clearTimeout(removed._timer);
   notifications = notifications.filter(x=>x.id!==id);
   renderNotifAdminHistory();
   renderNotifList();
   updateNotifBadge();
+  const res = await appSave('notifications', {silent:true});
+  if(res && res.ok===false){
+    notifications.splice(idx, 0, removed);
+    renderNotifAdminHistory();
+    renderNotifList();
+    updateNotifBadge();
+    showToast('❌ Xoá thông báo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
   showToast('🗑️ Đã xoá thông báo');
 }
 
@@ -8057,7 +8081,12 @@ function editTeacherAdmin2(id){
   Array.from(sel.options).forEach(o=>o.selected = t.classIds.includes(o.value));
   openModal('teacherEditModalBg2');
 }
-function saveTeacherEdit2(){
+// [FIX-GIÁO-VIÊN-MẤT-CHỈNH-SỬA] Trước đây appSave() không được chờ — nếu lưu thất bại,
+// modal vẫn đóng và toast vẫn báo "đã cập nhật" dù thay đổi có thể chưa hề tới Supabase.
+// Giờ chờ xác nhận thật, và nếu thất bại thì báo lỗi thật + KHÔNG đóng modal để người
+// dùng biết cần thử lại (dữ liệu trên UI vẫn giữ nguyên vì object t đã bị sửa tại chỗ,
+// không rollback field-by-field ở đây vì rủi ro thấp hơn nhiều so với việc xoá hẳn).
+async function saveTeacherEdit2(){
   const t = adminTeachers2.find(t=>t.id===editingTeacherId2);
   if(!t) return;
   const name = document.getElementById('gvEditName2').value.trim();
@@ -8069,19 +8098,45 @@ function saveTeacherEdit2(){
   t.teachMode = document.getElementById('gvEditTeachMode2').value;
   t.workMode = document.getElementById('gvEditWorkMode2').value;
   t.classIds = Array.from(document.getElementById('gvEditClasses2').selectedOptions).map(o=>o.value);
-  appSave('adminTeachers2');
-  closeModal('teacherEditModalBg2');
   renderTeacherTable2();
   renderClassTable();
+  const res = await appSave('adminTeachers2', {silent:true});
+  if(res && res.ok===false){
+    showToast('❌ Lưu thông tin giáo viên KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  closeModal('teacherEditModalBg2');
   showToast('✅ Đã cập nhật thông tin giáo viên');
 }
-function deleteTeacherAdmin2(id){
+// [FIX-GIÁO-VIÊN-SỐNG-LẠI] Trước đây xoá xong là appSave() "bắn rồi quên" ngay lập tức
+// giống lỗi cũ đã sửa ở deleteStudentAdmin — UI báo xoá thành công dù việc lưu lên
+// Supabase có thể đang thất bại phía sau (JWT hết hạn, mất quyền, mất mạng...). Giờ:
+// xoá tạm trên UI trước cho mượt, CHỜ xác nhận lưu thật thành công cho CẢ 2 mảng
+// (adminTeachers2 + adminClasses vì xoá GV còn gỡ GV khỏi lớp); nếu 1 trong 2 lưu thất
+// bại thì khôi phục lại toàn bộ và báo lỗi thật, không đánh lừa người dùng.
+async function deleteTeacherAdmin2(id){
   if(!confirm('Bạn có chắc muốn xoá giáo viên này không?')) return;
+  const idx = adminTeachers2.findIndex(t=>t.id===id);
+  if(idx===-1) return;
+  const removed = adminTeachers2[idx];
+  const touchedClasses = adminClasses.filter(c=>c.teacherId===id);
   adminTeachers2 = adminTeachers2.filter(t=>t.id!==id);
-  adminClasses.forEach(c=>{ if(c.teacherId===id) c.teacherId=null; });
-  appSave('adminTeachers2'); appSave('adminClasses');
+  touchedClasses.forEach(c=>{ c.teacherId=null; });
   renderTeacherTable2();
   renderClassTable();
+  const [resT, resC] = await Promise.all([
+    appSave('adminTeachers2', {silent:true}),
+    appSave('adminClasses', {silent:true})
+  ]);
+  const failed = (resT && resT.ok===false) ? resT : (resC && resC.ok===false ? resC : null);
+  if(failed){
+    adminTeachers2.splice(idx, 0, removed);
+    touchedClasses.forEach(c=>{ c.teacherId=id; });
+    renderTeacherTable2();
+    renderClassTable();
+    showToast('❌ Xoá giáo viên KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — giáo viên đã được khôi phục.');
+    return;
+  }
   showToast('🗑️ Đã xoá giáo viên');
 }
 
@@ -9763,17 +9818,35 @@ function saveQuestionEdit(){
   renderLevelBankTable();
   showToast('✅ Đã cập nhật câu hỏi');
 }
-function deleteQuestion(kind, id){
+async function deleteQuestion(kind, id){
   if(!confirm('Bạn có chắc muốn xoá câu hỏi này không?')) return;
   if(kind==='placement'){
+    const idx = placementBank.findIndex(q=>q.id===id);
+    if(idx===-1) return;
+    const removed = placementBank[idx];
     placementBank = placementBank.filter(q=>q.id!==id);
-    appSave('placementBank');
     renderPlacementBankTable();
+    const res = await appSave('placementBank', {silent:true});
+    if(res && res.ok===false){
+      placementBank.splice(idx, 0, removed);
+      renderPlacementBankTable();
+      showToast('❌ Xoá câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+      return;
+    }
   } else {
     const lvl=document.getElementById('ldLevelSelect').value;
+    const idx = levelBank[lvl].findIndex(q=>q.id===id);
+    if(idx===-1) return;
+    const removed = levelBank[lvl][idx];
     levelBank[lvl]=levelBank[lvl].filter(q=>q.id!==id);
-    appSave('levelBank');
     renderLevelBankTable();
+    const res = await appSave('levelBank', {silent:true});
+    if(res && res.ok===false){
+      levelBank[lvl].splice(idx, 0, removed);
+      renderLevelBankTable();
+      showToast('❌ Xoá câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+      return;
+    }
   }
   showToast('🗑️ Đã xoá câu hỏi');
 }
