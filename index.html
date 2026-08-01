@@ -5455,17 +5455,40 @@ function appRegisterState(name, getFn, setFn, onSync){
 // tác ghi đều đi qua Edge Function "save-state", hàm đó tự kiểm tra quyền theo email
 // thật (JWT) trước khi ghi — xem supabase/functions/save-state/index.ts.
 function appPersist(name){
-  const entry = APP_STATE_REGISTRY[name]; if(!entry) return;
+  const entry = APP_STATE_REGISTRY[name]; if(!entry) return Promise.resolve(true);
   const value = entry.get();
   try{ localStorage.setItem(APP_LS_PREFIX+name, JSON.stringify(value)); }
   catch(e){ /* localStorage đầy hoặc bị chặn -> bỏ qua, không chặn luồng chính */ }
   if(sb){
-    sb.functions.invoke('save-state', { body: { name, value } })
+    // [FIX-MẤT-DỮ-LIỆU-KHI-XOÁ/SỬA] Trước đây lời gọi Edge Function chạy kiểu "bắn rồi
+    // quên" (không return, không await): nếu server từ chối ghi (vd JWT không đủ quyền
+    // admin, RLS chặn, mất mạng...) thì lỗi CHỈ hiện ở console — người dùng không hề biết,
+    // vì localStorage/UI đã đổi nên tưởng thao tác (xoá/thêm/sửa) đã xong. Nhưng dữ liệu
+    // THẬT trên Supabase vẫn còn nguyên -> đăng xuất/đăng nhập lại (appRestore() luôn đọc
+    // từ Supabase trước) là dữ liệu cũ "sống lại" (ví dụ học viên đã xoá lại hiện ra).
+    // Giờ hàm này: (1) luôn báo toast rõ ràng khi lưu thất bại, (2) trả về Promise<boolean>
+    // để nơi gọi quan trọng (vd deleteStudentAdmin) có thể await và tự HOÀN TÁC nếu cần.
+    return sb.functions.invoke('save-state', { body: { name, value } })
       .then(({error, data})=>{
-        if(error) console.error('[Supabase] Lưu "'+name+'" thất bại:', error.message);
-        else if(data && data.error) console.error('[Supabase] Lưu "'+name+'" bị từ chối:', data.error);
+        if(error){
+          console.error('[Supabase] Lưu "'+name+'" thất bại:', error.message);
+          showToast('⚠️ Lưu "'+name+'" lên máy chủ thất bại: '+error.message+' — thay đổi có thể KHÔNG được giữ lại.');
+          return false;
+        }
+        if(data && data.error){
+          console.error('[Supabase] Lưu "'+name+'" bị từ chối:', data.error);
+          showToast('⚠️ Máy chủ từ chối lưu "'+name+'": '+data.error+' — thay đổi có thể KHÔNG được giữ lại.');
+          return false;
+        }
+        return true;
+      })
+      .catch(e=>{
+        console.error('[Supabase] Lưu "'+name+'" lỗi mạng:', e);
+        showToast('⚠️ Mất kết nối khi lưu "'+name+'" — thay đổi có thể KHÔNG được giữ lại, hãy thử lại.');
+        return false;
       });
   }
+  return Promise.resolve(true);
 }
 // Đọc từ Supabase trước (nguồn dữ liệu thật, dùng chung cho mọi thiết bị); nếu mất mạng/lỗi
 // thì rơi xuống bản sao localStorage gần nhất để app vẫn dùng được offline.
@@ -5491,9 +5514,10 @@ async function appRestore(name){
 async function appRestoreAll(){ await Promise.all(Object.keys(APP_STATE_REGISTRY).map(appRestore)); }
 // Gọi sau MỌI lần thêm/sửa/xoá dữ liệu: lưu local + Supabase + báo các tab cùng máy kèm dữ liệu thật.
 function appSave(name){
-  appPersist(name);
+  const savePromise = appPersist(name);
   const entry = APP_STATE_REGISTRY[name];
   if(appBus && entry){ try{ appBus.postMessage({state:name, value:entry.get()}); }catch(e){} }
+  return savePromise; // các lời gọi cũ không await vẫn chạy y như trước (fire-and-forget)
 }
 if(appBus){
   appBus.onmessage = (ev)=>{
@@ -7936,11 +7960,26 @@ function saveStudentEdit(){
   renderStudentTable();
   showToast('✅ Đã cập nhật thông tin học viên');
 }
-function deleteStudentAdmin(id){
+async function deleteStudentAdmin(id){
   if(!confirm('Bạn có chắc muốn xoá học viên này không?')) return;
+  // [FIX-HỌC-VIÊN-SỐNG-LẠI] Trước đây xoá xong là appSave() "bắn rồi quên" ngay lập tức
+  // -> UI mất học viên ngay dù việc lưu lên Supabase có thể đang thất bại phía sau (vd bị
+  // Edge Function từ chối do JWT không đủ quyền admin). Người dùng tưởng đã xoá xong, nhưng
+  // đăng xuất/đăng nhập lại là appRestore() đọc lại bản CŨ từ Supabase -> học viên hiện lại.
+  // Giờ: xoá tạm trên UI trước cho mượt, nhưng CHỜ (await) xác nhận lưu thật thành công;
+  // nếu thất bại thì tự khôi phục lại học viên và báo lỗi rõ ràng, không đánh lừa người dùng.
+  const idx = adminStudents.findIndex(s=>s.id===id);
+  if(idx===-1) return;
+  const removed = adminStudents[idx];
   adminStudents = adminStudents.filter(s=>s.id!==id);
-  appSave('adminStudents');
   renderStudentTable();
+  const ok = await appSave('adminStudents');
+  if(ok===false){
+    adminStudents.splice(idx, 0, removed);
+    renderStudentTable();
+    showToast('❌ Xoá học viên KHÔNG thành công (lỗi lưu dữ liệu lên máy chủ). Học viên đã được khôi phục — vui lòng thử lại.');
+    return;
+  }
   showToast('🗑️ Đã xoá học viên');
 }
 
