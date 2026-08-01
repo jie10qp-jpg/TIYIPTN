@@ -7886,14 +7886,35 @@ function openChangeTeacher(classId){
   sel.value = c.teacherId || '';
   openModal('changeTeacherModalBg');
 }
-function confirmChangeTeacher(){
+async function confirmChangeTeacher(){
   const c = adminClasses.find(c=>c.id===currentClassForTeacher);
   if(!c) return;
   const newTeacherId = document.getElementById('ctmTeacherSelect').value || null;
-  c.teacherId = newTeacherId;
-  appSave('adminClasses');
+  const prevTeacherId = c.teacherId || null;
+  if(prevTeacherId===newTeacherId){ closeModal('changeTeacherModalBg'); return; }
+  // snapshot để khôi phục nếu lưu thất bại
+  const prevSnapshot = {
+    classTeacherId: prevTeacherId,
+    oldTClassIds: prevTeacherId ? (adminTeachers2.find(t=>t.id===prevTeacherId)?.classIds||[]).slice() : null,
+    newTClassIds: newTeacherId ? (adminTeachers2.find(t=>t.id===newTeacherId)?.classIds||[]).slice() : null,
+  };
+  linkClassToTeacher(currentClassForTeacher, newTeacherId); // đồng bộ 2 chiều: cập nhật cả adminTeachers2[].classIds
   closeModal('changeTeacherModalBg');
   renderClassTable();
+  const [resC, resT] = await Promise.all([
+    appSave('adminClasses', {silent:true}),
+    appSave('adminTeachers2', {silent:true})
+  ]);
+  const failed = (resC && resC.ok===false) ? resC : (resT && resT.ok===false ? resT : null);
+  if(failed){
+    // khôi phục cả 2 vế đúng như trước khi đổi
+    c.teacherId = prevSnapshot.classTeacherId;
+    if(prevTeacherId){ const oldT=adminTeachers2.find(t=>t.id===prevTeacherId); if(oldT) oldT.classIds = prevSnapshot.oldTClassIds; }
+    if(newTeacherId){ const newT=adminTeachers2.find(t=>t.id===newTeacherId); if(newT) newT.classIds = prevSnapshot.newTClassIds; }
+    renderClassTable();
+    showToast('❌ Đổi giáo viên KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
   showToast('✅ Đã cập nhật giáo viên phụ trách');
 }
 
@@ -8086,6 +8107,57 @@ function editTeacherAdmin2(id){
 // Giờ chờ xác nhận thật, và nếu thất bại thì báo lỗi thật + KHÔNG đóng modal để người
 // dùng biết cần thử lại (dữ liệu trên UI vẫn giữ nguyên vì object t đã bị sửa tại chỗ,
 // không rollback field-by-field ở đây vì rủi ro thấp hơn nhiều so với việc xoá hẳn).
+// [FIX-TRIỆT-ĐỂ-LIÊN-KẾT-GV-LỚP] Quan hệ giáo viên↔lớp trước đây được lưu ở 2 CHỖ RIÊNG
+// BIỆT không đồng bộ nhau: adminClasses[].teacherId (1 lớp → 1 giáo viên) và
+// adminTeachers2[].classIds (1 giáo viên → nhiều lớp). "Đổi giáo viên" (màn hình lớp)
+// chỉ sửa vế đầu, "Sửa giáo viên" (màn hình giáo viên) chỉ sửa vế sau — khiến 2 nơi lệch
+// nhau: các trang đọc theo class.teacherId (lịch dạy) thấy khác với các trang đọc theo
+// teacher.classIds (trang chủ GV, khoá dạy, lương...). Từ giờ MỌI thay đổi liên kết phải
+// đi qua các hàm dưới đây để đảm bảo 2 vế luôn khớp tuyệt đối — không còn 2 nguồn sự thật.
+
+// Gán/gỡ giáo viên cho 1 lớp cụ thể (dùng bởi "Đổi giáo viên" ở màn hình lớp).
+// classId: lớp đang sửa. newTeacherId: giáo viên mới (hoặc null để gỡ).
+function linkClassToTeacher(classId, newTeacherId){
+  const c = adminClasses.find(x=>x.id===classId);
+  if(!c) return;
+  const oldTeacherId = c.teacherId || null;
+  newTeacherId = newTeacherId || null;
+  if(oldTeacherId===newTeacherId) return;
+  if(oldTeacherId){
+    const oldT = adminTeachers2.find(t=>t.id===oldTeacherId);
+    if(oldT && Array.isArray(oldT.classIds)) oldT.classIds = oldT.classIds.filter(id=>id!==classId);
+  }
+  if(newTeacherId){
+    const newT = adminTeachers2.find(t=>t.id===newTeacherId);
+    if(newT){ if(!Array.isArray(newT.classIds)) newT.classIds=[]; if(!newT.classIds.includes(classId)) newT.classIds.push(classId); }
+  }
+  c.teacherId = newTeacherId;
+}
+// Gán danh sách lớp cho 1 giáo viên cụ thể (dùng bởi "Sửa giáo viên"). Lớp nào trước đó
+// thuộc giáo viên khác trong danh sách mới sẽ được CHUYỂN sang giáo viên này (1 lớp chỉ
+// có tối đa 1 giáo viên chính); lớp nào bị bỏ khỏi danh sách sẽ được gỡ về "chưa gán".
+function linkTeacherToClasses(teacherId, newClassIds){
+  const t = adminTeachers2.find(x=>x.id===teacherId);
+  if(!t) return;
+  const oldClassIds = Array.isArray(t.classIds) ? t.classIds.slice() : [];
+  const newSet = new Set(newClassIds);
+  oldClassIds.forEach(cid=>{
+    if(!newSet.has(cid)){
+      const c = adminClasses.find(x=>x.id===cid);
+      if(c && c.teacherId===teacherId) c.teacherId = null;
+    }
+  });
+  newClassIds.forEach(cid=>{
+    const c = adminClasses.find(x=>x.id===cid);
+    if(!c) return;
+    if(c.teacherId && c.teacherId!==teacherId){
+      const otherT = adminTeachers2.find(x=>x.id===c.teacherId);
+      if(otherT && Array.isArray(otherT.classIds)) otherT.classIds = otherT.classIds.filter(id=>id!==cid);
+    }
+    c.teacherId = teacherId;
+  });
+  t.classIds = newClassIds.slice();
+}
 async function saveTeacherEdit2(){
   const t = adminTeachers2.find(t=>t.id===editingTeacherId2);
   if(!t) return;
@@ -8097,12 +8169,17 @@ async function saveTeacherEdit2(){
   t.phone = document.getElementById('gvEditPhone2').value.trim();
   t.teachMode = document.getElementById('gvEditTeachMode2').value;
   t.workMode = document.getElementById('gvEditWorkMode2').value;
-  t.classIds = Array.from(document.getElementById('gvEditClasses2').selectedOptions).map(o=>o.value);
+  const newClassIds = Array.from(document.getElementById('gvEditClasses2').selectedOptions).map(o=>o.value);
+  linkTeacherToClasses(t.id, newClassIds); // đồng bộ 2 chiều: cập nhật cả adminClasses[].teacherId
   renderTeacherTable2();
   renderClassTable();
-  const res = await appSave('adminTeachers2', {silent:true});
-  if(res && res.ok===false){
-    showToast('❌ Lưu thông tin giáo viên KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+  const [resT, resC] = await Promise.all([
+    appSave('adminTeachers2', {silent:true}),
+    appSave('adminClasses', {silent:true})
+  ]);
+  const failed = (resT && resT.ok===false) ? resT : (resC && resC.ok===false ? resC : null);
+  if(failed){
+    showToast('❌ Lưu thông tin giáo viên KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
     return;
   }
   closeModal('teacherEditModalBg2');
