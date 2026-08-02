@@ -814,6 +814,8 @@ body.dark .login-error{background:#3a1615;color:#ff9d94;border-color:#5c2422;}
 .qd-fill{display:inline-block;border-bottom:1.5px dashed var(--jade-2);color:var(--jade-2);font-weight:700;padding:0 4px;cursor:pointer;min-width:60px;}
 .qd-fill.filled{color:var(--ink);border-bottom-style:solid;}
 .qd-fill-input{border:1.5px solid var(--jade-2);border-radius:6px;padding:2px 6px;font-size:.9rem;font-family:inherit;}
+.qd-fill-select,.qd-fill-date{border:1.5px solid var(--jade-2);border-radius:6px;padding:2px 6px;font-size:.9rem;font-family:inherit;background:var(--paper);color:var(--ink);}
+.qd-italic-sm{font-size:.82em;}
 .qd-form-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .qd-form-card b{display:block;font-size:.95rem;}
 .qd-form-card .qd-mode-btns{display:flex;gap:8px;}
@@ -3127,6 +3129,13 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
           <button type="button" class="qd-tok" onclick="qdInsertTok('<dd/mm/yyyy>')">&lt;dd/mm/yyyy&gt; Ngày</button>
           <button type="button" class="qd-tok" onclick="qdInsertTok('<x>')">&lt;x&gt; Checkbox đồng ý</button>
           <button type="button" class="qd-tok" onclick="qdInsertTok('<k>')">&lt;k&gt; Ký tên</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<lc>Lựa chọn 1; Lựa chọn 2<lc>')">&lt;lc&gt; Lựa chọn</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<sl>0;10<sl>')">&lt;sl&gt; Số lượng</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<dmy>')">&lt;dmy&gt; Chọn ngày</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<tdmy>')">&lt;tdmy&gt; Chọn giờ+ngày</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<b>chữ đậm<b>')">&lt;b&gt; In đậm</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<i>chữ nghiêng<i>')">&lt;i&gt; In nghiêng</button>
+          <button type="button" class="qd-tok" onclick="qdInsertTok('<in>chữ nghiêng nhỏ<in>')">&lt;in&gt; Nghiêng nhỏ</button>
         </div>
         <textarea id="qdFormOnlineText" style="min-height:160px;" placeholder="Soạn nội dung mẫu đơn tại đây, dùng các nút phía trên để chèn trường ký hiệu..."></textarea>
       </div>
@@ -11021,6 +11030,21 @@ function qdFormatToday(){
   const d=new Date(); const pad=n=>String(n).padStart(2,'0');
   return `ngày ${pad(d.getDate())} tháng ${pad(d.getMonth()+1)} năm ${d.getFullYear()}`;
 }
+// [MỚI] Định dạng cho token <dmy> và <tdmy> trong mẫu đơn online.
+function qdFormatDmyStr(dateStr){
+  if(!dateStr) return '';
+  const [y,m,d] = dateStr.split('-');
+  if(!y||!m||!d) return '';
+  return `ngày ${d}, tháng ${m}, năm ${y}`;
+}
+function qdFormatTdmyStr(dtStr){
+  if(!dtStr) return '';
+  const [datePart,timePart] = dtStr.split('T');
+  if(!datePart||!timePart) return '';
+  const [y,m,d] = datePart.split('-');
+  if(!y||!m||!d) return '';
+  return `${timePart}, ngày ${d}, tháng ${m}, năm ${y}`;
+}
 function qdSelfProfile(role){
   // Lấy đúng hồ sơ thật từ danh sách admin đã quản lý (không dùng dữ liệu giả nữa).
   if(role==='student'){
@@ -11527,7 +11551,7 @@ function qdRenderFormList(role){
 }
 function qdParseFormBody(text, targetName, targetCode, className){
   const todayStr=qdFormatToday();
-  let fieldIdx=0;
+  let fieldIdx=0, lcIdx=0, slIdx=0, dmyIdx=0, tdmyIdx=0;
   return text
     .replace(/<t>/g, ()=>qdEsc(targetName))
     .replace(/<l>/g, ()=>qdEsc(className||'—'))
@@ -11535,6 +11559,39 @@ function qdParseFormBody(text, targetName, targetCode, className){
     .replace(/<dd\/mm\/yyyy>/g, ()=>todayStr)
     .replace(/<x>/g, ()=>`<span class="qd-checkline"><input type="checkbox" id="qdAgreeChk" onchange="qdOnAgreeChange()"><span>Tôi hoàn toàn đồng ý điều trên và có nghĩa vụ chịu trách nhiệm</span></span>`)
     .replace(/<k>/g, ()=>`<span id="qdSignatureSpan" class="qd-fill">${'\u3000'.repeat(6)}</span>`)
+    // <lc>cái 1; cái 2; cái 3<lc> -> lựa chọn dạng dropdown
+    .replace(/<lc>([\s\S]*?)<lc>/g, (m, inner)=>{
+      lcIdx++;
+      const opts = inner.split(';').map(s=>s.trim()).filter(Boolean);
+      const optsHtml = opts.map(o=>`<option value="${qdEsc(o)}">${qdEsc(o)}</option>`).join('');
+      return `<select class="qd-fill-select" id="qdLcField_${lcIdx}" data-field="${lcIdx}"><option value="" selected disabled>— Chọn —</option>${optsHtml}</select>`;
+    })
+    // <sl>0;10<sl> -> lựa chọn số lượng dạng dropdown từ 0 đến 10
+    .replace(/<sl>([\s\S]*?)<sl>/g, (m, inner)=>{
+      slIdx++;
+      const parts = inner.split(';').map(s=>s.trim());
+      const from = parseInt(parts[0],10)||0;
+      const to = parts[1]!==undefined && parseInt(parts[1],10)===parseInt(parts[1],10) ? parseInt(parts[1],10) : from;
+      let optsHtml='';
+      for(let n=from;n<=to;n++) optsHtml += `<option value="${n}">${n}</option>`;
+      return `<select class="qd-fill-select" id="qdSlField_${slIdx}" data-field="${slIdx}"><option value="" selected disabled>— Chọn —</option>${optsHtml}</select>`;
+    })
+    // <dmy> -> chọn ngày tháng năm, hiển thị "ngày xx, tháng xx, năm xxxx" sau khi chọn
+    .replace(/<dmy>/g, ()=>{
+      dmyIdx++;
+      return `<input type="date" class="qd-fill-date" id="qdDmyField_${dmyIdx}" data-field="${dmyIdx}">`;
+    })
+    // <tdmy> -> chọn giờ + ngày tháng năm, hiển thị "xx:xx, ngày xx, tháng xx, năm xxxx" sau khi chọn
+    .replace(/<tdmy>/g, ()=>{
+      tdmyIdx++;
+      return `<input type="datetime-local" class="qd-fill-date" id="qdTdmyField_${tdmyIdx}" data-field="${tdmyIdx}">`;
+    })
+    // <b>nội dung<b> -> in đậm
+    .replace(/<b>([\s\S]*?)<b>/g, (m, inner)=>`<b>${qdEsc(inner.trim())}</b>`)
+    // <in>nội dung<in> -> in nghiêng chữ nhỏ
+    .replace(/<in>([\s\S]*?)<in>/g, (m, inner)=>`<i class="qd-italic-sm">${qdEsc(inner.trim())}</i>`)
+    // <i>nội dung<i> -> in nghiêng
+    .replace(/<i>([\s\S]*?)<i>/g, (m, inner)=>`<i>${qdEsc(inner.trim())}</i>`)
     .replace(/\(([^)]*)\)/g, (m, hint)=>{
       fieldIdx++;
       const ph = hint && hint.trim() ? hint.trim() : 'Ấn vào điền';
@@ -11568,7 +11625,7 @@ function qdBackToFormList(role){
 }
 function qdBuildFilledText(form, st){
   const todayStr=qdFormatToday();
-  let idx=0;
+  let idx=0, lcIdx=0, slIdx=0, dmyIdx=0, tdmyIdx=0;
   const agreeChk=document.getElementById('qdAgreeChk');
   const agreed = agreeChk ? agreeChk.checked : false;
   return form.onlineText
@@ -11578,6 +11635,29 @@ function qdBuildFilledText(form, st){
     .replace(/<dd\/mm\/yyyy>/g, todayStr)
     .replace(/<x>/g, agreed ? '☑ Tôi hoàn toàn đồng ý điều trên và có nghĩa vụ chịu trách nhiệm' : '☐ (chưa xác nhận)')
     .replace(/<k>/g, agreed ? st.targetName : '(chưa ký tên)')
+    .replace(/<lc>([\s\S]*?)<lc>/g, ()=>{
+      lcIdx++;
+      const el=document.getElementById('qdLcField_'+lcIdx);
+      return el && el.value ? el.value : '(chưa chọn)';
+    })
+    .replace(/<sl>([\s\S]*?)<sl>/g, ()=>{
+      slIdx++;
+      const el=document.getElementById('qdSlField_'+slIdx);
+      return el && el.value ? el.value : '(chưa chọn)';
+    })
+    .replace(/<dmy>/g, ()=>{
+      dmyIdx++;
+      const el=document.getElementById('qdDmyField_'+dmyIdx);
+      return el && el.value ? qdFormatDmyStr(el.value) : '(chưa chọn ngày)';
+    })
+    .replace(/<tdmy>/g, ()=>{
+      tdmyIdx++;
+      const el=document.getElementById('qdTdmyField_'+tdmyIdx);
+      return el && el.value ? qdFormatTdmyStr(el.value) : '(chưa chọn giờ)';
+    })
+    .replace(/<b>([\s\S]*?)<b>/g, (m, inner)=>inner.trim())
+    .replace(/<in>([\s\S]*?)<in>/g, (m, inner)=>inner.trim())
+    .replace(/<i>([\s\S]*?)<i>/g, (m, inner)=>inner.trim())
     .replace(/\(([^)]*)\)/g, ()=>{
       idx++;
       const el=document.getElementById('qdFillField_'+idx);
