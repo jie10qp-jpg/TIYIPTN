@@ -2623,14 +2623,25 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
   </div>
 </div>
 
-<!-- admin: end class modal -->
+<!-- admin: end class modal (soft end — lớp chuyển sang "Đã kết thúc", không xoá dữ liệu ngay) -->
 <div class="modal-bg" id="endClassModalBg">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('endClassModalBg')">✕</button>
     <h3 id="ecmTitle">Kết thúc khoá học</h3>
-    <p style="color:var(--ink-soft);font-size:.88rem;">⚠️ Hành động này sẽ <b>XOÁ HẲN lớp này</b> khỏi hệ thống (không thể hoàn tác), cùng với <b>toàn bộ lịch học, buổi học, đăng ký, điểm danh, nhóm chat và tin nhắn</b> gắn với lớp. Học viên đang thuộc lớp sẽ trở thành "chưa có lớp" — vào mục Quản lý học viên để gán lớp mới cho các em (KHÔNG tự xoá học viên). Lịch sử lương của giáo viên vẫn được giữ nguyên. Để xác nhận, vui lòng nhập lại mã lớp.</p>
+    <p style="color:var(--ink-soft);font-size:.88rem;">Lớp sẽ chuyển sang trạng thái <b>"Đã kết thúc"</b>: không thể xếp lịch/đăng ký buổi học mới cho lớp này nữa, nhưng <b>toàn bộ dữ liệu vẫn được giữ nguyên</b> (lịch sử buổi học, điểm danh, nhóm chat, tin nhắn...). Sau <b>45 ngày kể từ khi kết thúc</b>, hệ thống sẽ <b>tự động xoá hẳn</b> lớp này cùng toàn bộ dữ liệu liên quan (không cần bạn phải vào xoá thủ công). Nếu muốn xoá ngay lập tức thay vì chờ, dùng nút "🗑️ Xoá lớp ngay". Để xác nhận kết thúc khoá học, vui lòng nhập lại mã lớp.</p>
     <div class="field"><label>Mã lớp</label><input id="ecmCodeInput" maxlength="4" inputmode="numeric" placeholder="Nhập mã lớp"></div>
     <button class="btn btn-primary" style="width:100%;background:linear-gradient(135deg,#e0665c,#c0392b);" onclick="confirmEndClass()">XÁC NHẬN KẾT THÚC</button>
+  </div>
+</div>
+
+<!-- admin: delete class NOW modal (hard delete ngay lập tức, không chờ 45 ngày) -->
+<div class="modal-bg" id="deleteClassModalBg">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('deleteClassModalBg')">✕</button>
+    <h3 id="dcmTitle">Xoá lớp ngay</h3>
+    <p style="color:var(--ink-soft);font-size:.88rem;">⚠️ Hành động này sẽ <b>XOÁ HẲN lớp này</b> khỏi hệ thống ngay lập tức (không thể hoàn tác), cùng với <b>toàn bộ lịch học, buổi học, đăng ký, điểm danh, nhóm chat và tin nhắn</b> gắn với lớp. Học viên đang thuộc lớp sẽ trở thành "chưa có lớp" — vào mục Quản lý học viên để gán lớp mới cho các em (KHÔNG tự xoá học viên). Lịch sử lương của giáo viên vẫn được giữ nguyên. Để xác nhận, vui lòng nhập lại mã lớp.</p>
+    <div class="field"><label>Mã lớp</label><input id="dcmCodeInput" maxlength="4" inputmode="numeric" placeholder="Nhập mã lớp"></div>
+    <button class="btn btn-primary" style="width:100%;background:linear-gradient(135deg,#e0665c,#c0392b);" onclick="confirmDeleteClassNow()">XÁC NHẬN XOÁ NGAY</button>
   </div>
 </div>
 
@@ -7367,7 +7378,7 @@ async function createClassAdmin(){
   if(!name || !code){ showToast('⚠️ Vui lòng nhập tên lớp và mã lớp'); return; }
   if(!/^\d{4}$/.test(code)){ showToast('⚠️ Mã lớp phải gồm đúng 4 chữ số'); return; }
   if(adminClasses.some(c=>c.code===code)){ showToast('⚠️ Mã lớp đã tồn tại, vui lòng chọn mã khác'); return; }
-  const nc = {id:'cls'+Date.now(), name, code, mode, teacherId:null, ended:false};
+  const nc = {id:'cls'+Date.now(), name, code, mode, teacherId:null, ended:false, endedAt:null};
   adminClasses.push(nc);
   const res = await appSave('adminClasses', {silent:true});
   if(res && res.ok===false){
@@ -7385,12 +7396,18 @@ async function createClassAdmin(){
 }
 function renderClassTable(){
   const wrap = document.getElementById('classTbl');
+  if(typeof autoPurgeEndedClasses==='function') autoPurgeEndedClasses(); // dọn lớp đã kết thúc quá hạn, không cần Admin tự xoá tay
   if(!wrap) return;
   if(!adminClasses.length){ wrap.innerHTML = '<tr><td>Chưa có lớp nào được tạo</td></tr>'; return; }
   wrap.innerHTML = '<tr class="tbl-head-row"><th>Lớp</th><th>Mô hình</th><th>GV phụ trách</th><th>Hành động</th></tr>' +
     adminClasses.map(c=>{
       const teacher = adminTeachers2.find(t=>t.id===c.teacherId);
-      const statusTag = c.ended ? '<span class="tag muted">Đã kết thúc</span>' : '<span class="tag">Đang hoạt động</span>';
+      let statusTag = '<span class="tag">Đang hoạt động</span>';
+      if(c.ended){
+        const daysLeft = c.endedAt ? Math.max(0, CLASS_AUTO_PURGE_DAYS - Math.floor((Date.now()-c.endedAt)/86400000)) : null;
+        const purgeNote = daysLeft!==null ? ` · tự xoá sau ${daysLeft} ngày` : '';
+        statusTag = `<span class="tag muted">Đã kết thúc${purgeNote}</span>`;
+      }
       return `<tr>
         <td data-label="Lớp">${qdEsc(c.name)}<br><span class="tag gold">${qdEsc(c.code)}</span>${statusTag}</td>
         <td data-label="Mô hình">${classModeLabel(c.mode)}</td>
@@ -7399,6 +7416,7 @@ function renderClassTable(){
           <button class="btn btn-ghost" onclick="openClassStudents('${c.id}')">Xem d.sách HV</button>
           <button class="btn btn-ghost" ${c.ended?'disabled style="opacity:.5;"':''} onclick="openChangeTeacher('${c.id}')">Đổi GV</button>
           <button class="btn btn-ghost" style="color:#c0392b;" ${c.ended?'disabled style="opacity:.5;"':''} onclick="openEndClass('${c.id}')">Kết thúc khoá học</button>
+          <button class="btn btn-ghost" style="color:#c0392b;" onclick="openDeleteClassNow('${c.id}')">🗑️ Xoá lớp ngay</button>
         </td>
       </tr>`;
     }).join('');
@@ -8358,7 +8376,9 @@ async function confirmChangeTeacher(){
   showToast('✅ Đã cập nhật giáo viên phụ trách');
 }
 
-/* end a class (requires re-entering class code) */
+/* end a class (requires re-entering class code) — [SOFT-END] chỉ đánh dấu "Đã kết thúc",
+   KHÔNG xoá dữ liệu ngay. Xem hàm hardDeleteClass() bên dưới cho việc xoá thật (thủ công
+   qua nút "Xoá lớp ngay", hoặc tự động sau CLASS_AUTO_PURGE_DAYS ngày qua autoPurgeEndedClasses()). */
 let currentClassForEnd = null;
 function openEndClass(classId){
   const c = adminClasses.find(c=>c.id===classId);
@@ -8368,8 +8388,54 @@ function openEndClass(classId){
   document.getElementById('ecmCodeInput').value = '';
   openModal('endClassModalBg');
 }
-// [FIX-KẾT-THÚC-KHOÁ-HỌC-XOÁ-LỚP] "Kết thúc khoá học" XOÁ HẲN lớp khỏi adminClasses, và
-// theo yêu cầu mới nhất, XOÁ LUÔN mọi dữ liệu gắn với lớp đó (không giữ lại lịch sử nữa):
+async function confirmEndClass(){
+  const c = adminClasses.find(c=>c.id===currentClassForEnd);
+  if(!c) return;
+  const input = document.getElementById('ecmCodeInput').value.trim();
+  if(input !== c.code){ showToast('⚠️ Mã lớp không đúng, vui lòng thử lại'); return; }
+
+  const prevEnded = c.ended, prevEndedAt = c.endedAt;
+  c.ended = true;
+  c.endedAt = Date.now();
+  closeModal('endClassModalBg');
+  renderClassTable();
+
+  const res = await appSave('adminClasses', {silent:true});
+  if(res && res.ok===false){
+    c.ended = prevEnded; c.endedAt = prevEndedAt; // khôi phục nếu lưu thất bại
+    renderClassTable();
+    showToast('❌ Kết thúc khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
+  showToast(`✅ Đã kết thúc khoá học "${qdEsc(c.name)}". Dữ liệu vẫn được giữ, sẽ tự động xoá sau ${CLASS_AUTO_PURGE_DAYS} ngày.`);
+}
+
+/* xoá lớp NGAY (thủ công) — dùng chung logic xoá cứng với autoPurgeEndedClasses() */
+let currentClassForDelete = null;
+function openDeleteClassNow(classId){
+  const c = adminClasses.find(c=>c.id===classId);
+  if(!c) return;
+  currentClassForDelete = classId;
+  document.getElementById('dcmTitle').textContent = `Xoá lớp ngay — ${qdEsc(c.name)}`;
+  document.getElementById('dcmCodeInput').value = '';
+  openModal('deleteClassModalBg');
+}
+async function confirmDeleteClassNow(){
+  const c = adminClasses.find(c=>c.id===currentClassForDelete);
+  if(!c) return;
+  const input = document.getElementById('dcmCodeInput').value.trim();
+  if(input !== c.code){ showToast('⚠️ Mã lớp không đúng, vui lòng thử lại'); return; }
+  closeModal('deleteClassModalBg');
+  const result = await hardDeleteClass(c.id);
+  if(result && result.ok===false){
+    showToast('❌ Xoá lớp KHÔNG thành công: '+(result.message||'lỗi không xác định')+' — lớp đã được khôi phục.');
+  } else {
+    showToast(`✅ Đã xoá lớp "${qdEsc(result.name)}" cùng toàn bộ lịch học, tin nhắn, điểm danh liên quan${result.orphanNote||''}`);
+  }
+}
+
+// [FIX-KẾT-THÚC-KHOÁ-HỌC-XOÁ-LỚP] Xoá cứng: XOÁ HẲN lớp khỏi adminClasses, và
+// XOÁ LUÔN mọi dữ liệu gắn với lớp đó:
 //  - Lịch học + buổi học của lớp (lichHocList/tietHocList theo classId/lichHocId)
 //  - Đăng ký buổi học (dangKyList theo lessonId) + điểm danh HV/GV (diemDanhList/diemDanhGVList
 //    theo tietHocId) gắn với các buổi học vừa xoá
@@ -8381,14 +8447,14 @@ function openEndClass(classId){
 //    không gắn với lớp.
 //  - Dùng pattern xoá-lạc-quan-rồi-await-rồi-rollback-nếu-lỗi giống deleteStudentAdmin/
 //    deleteTeacherAdmin2, để không đánh lừa Admin khi lưu lên Supabase thất bại.
-async function confirmEndClass(){
-  const idx = adminClasses.findIndex(c=>c.id===currentClassForEnd);
-  if(idx===-1) return;
+// Dùng chung bởi: nút "Xoá lớp ngay" (thủ công) VÀ autoPurgeEndedClasses() (tự động sau
+// CLASS_AUTO_PURGE_DAYS ngày kể từ khi "Kết thúc khoá học"). Trả về {ok:true,name,orphanNote}
+// hoặc {ok:false,message}.
+async function hardDeleteClass(classId){
+  const idx = adminClasses.findIndex(c=>c.id===classId);
+  if(idx===-1) return {ok:false, message:'Không tìm thấy lớp'};
   const c = adminClasses[idx];
-  const input = document.getElementById('ecmCodeInput').value.trim();
-  if(input !== c.code){ showToast('⚠️ Mã lớp không đúng, vui lòng thử lại'); return; }
 
-  // ----- snapshot toàn bộ để khôi phục nếu lưu thất bại -----
   const orphanedStudents = adminStudents.filter(s=>s.classId===c.id);
   const studentSnapshot = orphanedStudents.map(s=>({id:s.id, classId:s.classId}));
   const linkedTeacher = c.teacherId ? adminTeachers2.find(t=>t.id===c.teacherId) : null;
@@ -8406,7 +8472,6 @@ async function confirmEndClass(){
   const groupIds = removedGroups.map(g=>g.id);
   const removedMsgs = msgMessages.filter(m=>groupIds.includes(m.groupId));
 
-  // ----- xoá lạc quan trên UI -----
   adminClasses = adminClasses.filter(x=>x.id!==c.id);
   orphanedStudents.forEach(s=>{ s.classId = null; });
   if(linkedTeacher && Array.isArray(linkedTeacher.classIds)) linkedTeacher.classIds = linkedTeacher.classIds.filter(id=>id!==c.id);
@@ -8419,7 +8484,6 @@ async function confirmEndClass(){
   msgMessages = msgMessages.filter(m=>!groupIds.includes(m.groupId));
   msgGroups = msgGroups.filter(g=>!groupIds.includes(g.id));
 
-  closeModal('endClassModalBg');
   renderClassTable();
   renderStudentTable();
   if(typeof renderTeacherTable2==='function') renderTeacherTable2();
@@ -8456,11 +8520,34 @@ async function confirmEndClass(){
     if(typeof lichOnCloudSync==='function') lichOnCloudSync();
     if(typeof kcOnCloudSync==='function') kcOnCloudSync();
     if(typeof msgOnCloudSync==='function') msgOnCloudSync();
-    showToast('❌ Kết thúc khoá học KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — lớp đã được khôi phục.');
-    return;
+    return {ok:false, message: failed.message||'lỗi không xác định'};
   }
   const orphanNote = orphanedStudents.length ? ` — ${orphanedStudents.length} học viên đang "chưa có lớp", vào Quản lý học viên để gán lớp mới.` : '';
-  showToast(`✅ Đã xoá lớp "${qdEsc(c.name)}" cùng toàn bộ lịch học, tin nhắn, điểm danh liên quan${orphanNote}`);
+  return {ok:true, name:c.name, orphanNote};
+}
+
+// [AUTO-PURGE] Tự động xoá hẳn các lớp đã "Kết thúc khoá học" quá CLASS_AUTO_PURGE_DAYS ngày,
+// để Admin KHÔNG cần tự vào xoá tay định kỳ. Chỉ chạy khi đang đăng nhập với vai trò admin
+// (tránh học viên/giáo viên vô tình kích hoạt xoá dữ liệu mà RLS phía Supabase cũng sẽ chặn).
+// Được gọi mỗi lần renderClassTable() chạy (vào trang Quản lý lớp, sau khi tạo/sửa/xoá lớp...),
+// có cờ chặn chạy chồng (purge đang chạy) để không gọi trùng nhiều lần liên tiếp.
+const CLASS_AUTO_PURGE_DAYS = 45;
+let classAutoPurgeRunning = false;
+async function autoPurgeEndedClasses(){
+  if(currentRole !== 'admin') return;
+  if(classAutoPurgeRunning) return;
+  const cutoff = CLASS_AUTO_PURGE_DAYS*24*60*60*1000;
+  const now = Date.now();
+  const toPurge = adminClasses.filter(c=>c.ended && c.endedAt && (now - c.endedAt) >= cutoff);
+  if(!toPurge.length) return;
+  classAutoPurgeRunning = true;
+  try{
+    for(const c of toPurge){
+      await hardDeleteClass(c.id); // xoá tuần tự, tránh đụng độ khi nhiều lớp cùng bị dọn 1 lúc
+    }
+  } finally {
+    classAutoPurgeRunning = false;
+  }
 }
 
 /* ----- Học viên ----- */
