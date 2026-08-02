@@ -1107,11 +1107,11 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
 <div id="screen-landing" class="screen">
   <div class="top-bar">
     <div class="brand-block">
-      <span class="logo-slot logo-anim"></span>
+      <span class="logo-slot logo-anim" onclick="btLogoSecretTap()" style="cursor:pointer;"></span>
       <div class="brand">TIYI Chinese<small>体艺中文 · Học tiếng Trung</small></div>
     </div>
     <div class="top-actions">
-      <button class="btn btn-primary" onclick="showScreen('screen-login')">Đăng nhập</button>
+      <button class="btn btn-primary" onclick="landingLoginClick()">Đăng nhập</button>
     </div>
   </div>
   <nav class="main-nav">
@@ -3980,11 +3980,35 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(isInAppBrowserUA()) w.classList.add('show');
   }
 });
-function googleLoginAttempt(){
+// ---------- Cửa admin ẩn khi đang bảo trì ----------
+// Nút "Đăng nhập" ở trang giới thiệu: nếu đang bảo trì web, chặn ngay tại đây
+// (không cho mở màn hình đăng nhập Gmail công khai) và hiện thẳng màn "đang bảo trì".
+// Admin thật muốn vào lúc này phải dùng cửa phụ: bấm 5 lần vào logo (xem btLogoSecretTap).
+function landingLoginClick(){
   if(typeof maintenanceWebOn!=='undefined' && maintenanceWebOn){
     showLoginMaintenanceScreen();
     return;
   }
+  showScreen('screen-login');
+}
+// Bấm liên tiếp 5 lần vào logo (trong vòng 3 giây) trên trang giới thiệu để mở màn đăng nhập
+// Gmail thật, kể cả khi đang bảo trì. Vào được hệ thống hay không vẫn do server (Edge Function
+// get-role) quyết định dựa trên role thật — nếu không phải admin sẽ vẫn bị đẩy ra ngoài
+// (xem đoạn kiểm tra role trong sbRouteUserToPortal). Cửa này chỉ có tác dụng MỞ màn hình đăng
+// nhập ra để thử, không tự cấp quyền cho ai cả.
+let _btLogoTapCount = 0;
+let _btLogoTapTimer = null;
+function btLogoSecretTap(){
+  _btLogoTapCount++;
+  clearTimeout(_btLogoTapTimer);
+  _btLogoTapTimer = setTimeout(()=>{ _btLogoTapCount = 0; }, 3000);
+  if(_btLogoTapCount >= 5){
+    _btLogoTapCount = 0;
+    clearTimeout(_btLogoTapTimer);
+    showScreen('screen-login');
+  }
+}
+function googleLoginAttempt(){
   if(isInAppBrowserUA()){
     const w = document.getElementById('iabWarning');
     if(w){ w.classList.add('show'); w.scrollIntoView({behavior:'smooth', block:'center'}); }
@@ -4029,6 +4053,14 @@ async function sbRouteUserToPortal(user) {
 
     const role = data.role;
     const name = data.name || user.email || 'Người dùng';
+
+    // Đang bảo trì web + không phải admin -> không cho vào, quay lại y hệt màn "đang bảo trì"
+    // (không tiết lộ có cửa phụ 5-tap cho người không phải admin).
+    if (role !== 'admin' && typeof maintenanceWebOn !== 'undefined' && maintenanceWebOn) {
+      showLoginMaintenanceScreen();
+      try { await sb.auth.signOut(); } catch(e) {}
+      return;
+    }
 
     if (role === 'admin') {
       const ok = enterPortal('admin', name);
