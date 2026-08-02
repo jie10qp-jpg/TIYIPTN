@@ -2628,7 +2628,7 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
   <div class="modal">
     <button class="modal-close" onclick="closeModal('endClassModalBg')">✕</button>
     <h3 id="ecmTitle">Kết thúc khoá học</h3>
-    <p style="color:var(--ink-soft);font-size:.88rem;">⚠️ Hành động này sẽ <b>XOÁ HẲN lớp này</b> khỏi hệ thống (không thể hoàn tác). Học viên đang thuộc lớp sẽ trở thành "chưa có lớp" — vào mục Quản lý học viên để gán lớp mới cho các em. Lịch sử điểm danh/lương/bài học liên quan vẫn được giữ nguyên. Để xác nhận, vui lòng nhập lại mã lớp.</p>
+    <p style="color:var(--ink-soft);font-size:.88rem;">⚠️ Hành động này sẽ <b>XOÁ HẲN lớp này</b> khỏi hệ thống (không thể hoàn tác), cùng với <b>toàn bộ lịch học, buổi học, đăng ký, điểm danh, nhóm chat và tin nhắn</b> gắn với lớp. Học viên đang thuộc lớp sẽ trở thành "chưa có lớp" — vào mục Quản lý học viên để gán lớp mới cho các em (KHÔNG tự xoá học viên). Lịch sử lương của giáo viên vẫn được giữ nguyên. Để xác nhận, vui lòng nhập lại mã lớp.</p>
     <div class="field"><label>Mã lớp</label><input id="ecmCodeInput" maxlength="4" inputmode="numeric" placeholder="Nhập mã lớp"></div>
     <button class="btn btn-primary" style="width:100%;background:linear-gradient(135deg,#e0665c,#c0392b);" onclick="confirmEndClass()">XÁC NHẬN KẾT THÚC</button>
   </div>
@@ -5107,46 +5107,72 @@ function renderNotifPane(role){
   updateNotifBadge();
 }
 
-/* ---- admin: image/pdf upload ---- */
+/* ---- admin: image/pdf upload ----
+   [FIX-THÔNG-BÁO-ẢNH/PDF-BASE64] Trước đây window._notifImgData/_notifPdfData giữ thẳng
+   base64 và được lưu NGUYÊN VĂN vào state 'notifications' -> payload phình to (nhất là khi
+   có nhiều thông báo còn ảnh/PDF đính kèm), dễ vượt quota localStorage và dễ khiến bản ghi
+   không lưu bền trên Supabase -> thông báo "biến mất" sau khi thoát ra vào lại. Giờ chỉ giữ
+   File gốc chờ upload (window._notifImgFile/_notifPdfFile); việc upload thật lên Supabase
+   Storage diễn ra ở handleNotifSubmit() ngay trước khi tạo draft, để _notifImgData/_notifPdfData
+   sau đó luôn là URL (chuỗi ngắn) — giống cách chat/banner/bài nộp đã làm. */
 function handleNotifImg(e){
   const f=e.target.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=()=>{
-    window._notifImgData=r.result;
-    document.getElementById('notifImgPreview').src=r.result;
-    document.getElementById('notifImgPreviewWrap').style.display='';
-  };
-  r.readAsDataURL(f);
+  window._notifImgFile=f;
+  window._notifImgData=URL.createObjectURL(f); // chỉ để xem trước
+  document.getElementById('notifImgPreview').src=window._notifImgData;
+  document.getElementById('notifImgPreviewWrap').style.display='';
 }
 function clearNotifImg(){
-  window._notifImgData=null;
+  window._notifImgFile=null; window._notifImgData=null;
   document.getElementById('notifImgInput').value='';
   document.getElementById('notifImgPreviewWrap').style.display='none';
 }
 function handleNotifPdf(e){
   const f=e.target.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=()=>{
-    window._notifPdfData=r.result;
-    window._notifPdfName=f.name;
-    document.getElementById('notifPdfName').textContent=f.name;
-    document.getElementById('notifPdfPreviewWrap').style.display='';
-  };
-  r.readAsDataURL(f);
+  window._notifPdfFile=f;
+  window._notifPdfData=null; // sẽ là URL thật sau khi upload lúc đăng
+  window._notifPdfName=f.name;
+  document.getElementById('notifPdfName').textContent=f.name;
+  document.getElementById('notifPdfPreviewWrap').style.display='';
 }
 function clearNotifPdf(){
-  window._notifPdfData=null; window._notifPdfName=null;
+  window._notifPdfFile=null; window._notifPdfData=null; window._notifPdfName=null;
   document.getElementById('notifPdfInput').value='';
   document.getElementById('notifPdfPreviewWrap').style.display='none';
 }
 
 /* ---- admin: submit (đăng thường / đăng banner / hẹn giờ) ---- */
-function handleNotifSubmit(){
+async function handleNotifSubmit(){
   const type = document.querySelector('input[name="notifType"]:checked').value;
   const title = document.getElementById('notifTitle').value.trim();
   const content = document.getElementById('notifContent').value.trim();
   const author = document.getElementById('notifAuthor').value.trim() || currentName || 'Admin';
   if(!title || !content){ showToast('⚠️ Vui lòng nhập tiêu đề và nội dung'); return; }
+
+  // Upload File thật (nếu có chọn mới) lên Storage trước khi tạo draft — xem giải thích ở
+  // handleNotifImg/handleNotifPdf. Nếu admin đang SỬA lại 1 bản nháp đã có ảnh/PDF (từ
+  // notifCountdownEdit) mà không chọn file mới, _notifImgFile/_notifPdfFile rỗng nên giữ
+  // nguyên URL cũ đang có trong _notifImgData/_notifPdfData.
+  const submitBtn = document.getElementById('notifSubmitBtn');
+  const prevBtnText = submitBtn ? submitBtn.textContent : '';
+  if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'ĐANG XỬ LÝ...'; }
+  try{
+    if(window._notifImgFile){
+      const up = await sbUploadFile(window._notifImgFile, 'notifications');
+      window._notifImgData = up.url;
+      window._notifImgFile = null;
+    }
+    if(window._notifPdfFile){
+      const up = await sbUploadFile(window._notifPdfFile, 'notifications');
+      window._notifPdfData = up.url;
+      window._notifPdfFile = null;
+    }
+  }catch(e){
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = prevBtnText; }
+    showToast('❌ Tải ảnh/PDF lên KHÔNG thành công: '+((e&&e.message)||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = prevBtnText; }
 
   const draft = {
     id:'nt'+Date.now(),
@@ -5214,6 +5240,8 @@ function notifCountdownEdit(){
   document.getElementById('notifTitle').value = notifDraft.title;
   document.getElementById('notifContent').value = notifDraft.content;
   document.getElementById('notifAuthor').value = notifDraft.author;
+  // notifDraft.image/pdfData ở đây đã là URL thật (đã upload) -> không có File mới chờ upload
+  window._notifImgFile = null; window._notifPdfFile = null;
   if(notifDraft.image){
     window._notifImgData = notifDraft.image;
     document.getElementById('notifImgPreview').src = notifDraft.image;
@@ -5321,6 +5349,8 @@ async function deleteNotif(id){
     showToast('❌ Xoá thông báo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
     return;
   }
+  if(removed.image) sbDeleteFileByUrl(removed.image);
+  if(removed.pdfData) sbDeleteFileByUrl(removed.pdfData);
   showToast('🗑️ Đã xoá thông báo');
 }
 
@@ -6702,6 +6732,7 @@ function tcRenderTeacherTbl(){
 function tcOpenSalaryModal(teacherId){
   tcCurrentSalaryTeacherId = teacherId;
   tcSalImgData = null;
+  tcSalImgFile = null;
   const t = adminTeachers2.find(x=>x.id===teacherId);
   document.getElementById('tcSalModalTitle').textContent = 'Thêm lương — ' + (t?t.name:'');
   document.getElementById('tcSalContent').value = '';
@@ -6711,17 +6742,19 @@ function tcOpenSalaryModal(teacherId){
   const pv = document.getElementById('tcSalImgPreview'); pv.style.display='none'; pv.innerHTML='';
   openModal('tcSalaryModalBg');
 }
+// [FIX-ẢNH-BIÊN-NHẬN-BASE64] Trước đây tcSalImgData giữ base64 và được lưu NGUYÊN VĂN vào
+// state 'salaryRecords'/'salaryHistory' -> payload phình to, dễ khiến phiếu lương mất khi
+// thoát ra vào lại. Giờ chỉ giữ File gốc (tcSalImgFile), upload thật lên Storage lúc bấm lưu
+// ở tcSaveSalary() và chỉ lưu URL.
+let tcSalImgFile = null;
 function tcHandleSalaryImg(ev){
   const f = ev.target.files[0];
   if(!f) return;
-  const reader = new FileReader();
-  reader.onload = e=>{
-    tcSalImgData = e.target.result;
-    const pv = document.getElementById('tcSalImgPreview');
-    pv.innerHTML = `<img src="${qdEsc(tcSalImgData)}" style="max-width:160px;border-radius:10px;border:1px solid var(--line);">`;
-    pv.style.display='';
-  };
-  reader.readAsDataURL(f);
+  tcSalImgFile = f;
+  tcSalImgData = URL.createObjectURL(f); // chỉ để xem trước
+  const pv = document.getElementById('tcSalImgPreview');
+  pv.innerHTML = `<img src="${qdEsc(tcSalImgData)}" style="max-width:160px;border-radius:10px;border:1px solid var(--line);">`;
+  pv.style.display='';
 }
 // [FIX-THÊM-LƯƠNG-KHÔNG-LƯU-CHẮC] Trước đây đóng modal + báo thành công ngay sau khi
 // gọi appSave() mà không chờ kết quả — nếu lưu thất bại, phiếu lương chỉ tồn tại trên
@@ -6734,16 +6767,28 @@ async function tcSaveSalary(){
   if(!content){ showToast('⚠️ Vui lòng nhập nội dung'); return; }
   if(!amount){ showToast('⚠️ Vui lòng nhập số tiền lương'); return; }
   if(!settleDate){ showToast('⚠️ Vui lòng chọn ngày kết toán'); return; }
-  const rec = {id:'sal'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:tcCurrentSalaryTeacherId, content, amount, settleDate, receiptImg:tcSalImgData, createdAt:Date.now()};
+  let receiptUrl = null;
+  if(tcSalImgFile){
+    try{
+      const up = await sbUploadFile(tcSalImgFile, 'salary');
+      receiptUrl = up.url;
+    }catch(e){
+      showToast('❌ Tải ảnh biên nhận lên KHÔNG thành công: '+((e&&e.message)||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
+  }
+  const rec = {id:'sal'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:tcCurrentSalaryTeacherId, content, amount, settleDate, receiptImg:receiptUrl, createdAt:Date.now()};
   salaryRecords.push(rec);
   tcRenderTeacherTbl();
   const res = await appSave('salaryRecords', {silent:true});
   if(res && res.ok===false){
     salaryRecords = salaryRecords.filter(r=>r.id!==rec.id);
     tcRenderTeacherTbl();
+    if(receiptUrl) sbDeleteFileByUrl(receiptUrl);
     showToast('❌ Thêm lương KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
     return;
   }
+  tcSalImgFile = null;
   closeModal('tcSalaryModalBg');
   showToast('✅ Đã thêm lương, sẽ lưu vào lịch sử lúc 8:00 ngày kết toán');
 }
@@ -8223,17 +8268,17 @@ function openEndClass(classId){
   document.getElementById('ecmCodeInput').value = '';
   openModal('endClassModalBg');
 }
-// [FIX-KẾT-THÚC-KHOÁ-HỌC-XOÁ-LỚP] Theo yêu cầu: "Kết thúc khoá học" giờ XOÁ HẲN lớp khỏi
-// adminClasses (trước đây chỉ đánh dấu ended=true và giữ lại). Khi xoá:
-//  - Học viên đang thuộc lớp này -> classId được gỡ về null ("mồ côi lớp"), renderStudentTable()
-//    đã tự hiển thị "—" cho học viên không có lớp (xem cột "Lớp"), nên Admin thấy ngay và có thể
-//    vào Quản lý học viên gán lớp mới. KHÔNG tự xoá học viên.
+// [FIX-KẾT-THÚC-KHOÁ-HỌC-XOÁ-LỚP] "Kết thúc khoá học" XOÁ HẲN lớp khỏi adminClasses, và
+// theo yêu cầu mới nhất, XOÁ LUÔN mọi dữ liệu gắn với lớp đó (không giữ lại lịch sử nữa):
+//  - Lịch học + buổi học của lớp (lichHocList/tietHocList theo classId/lichHocId)
+//  - Đăng ký buổi học (dangKyList theo lessonId) + điểm danh HV/GV (diemDanhList/diemDanhGVList
+//    theo tietHocId) gắn với các buổi học vừa xoá
+//  - Khoá học đã gán cho lớp (kcClassCourse theo classId)
+//  - Nhóm chat của lớp + toàn bộ tin nhắn trong nhóm đó (msgGroups/msgMessages theo classId/groupId)
+//  - Học viên đang thuộc lớp -> classId được gỡ về null ("mồ côi lớp", KHÔNG tự xoá học viên).
 //  - Giáo viên đang phụ trách lớp -> gỡ id lớp này khỏi classIds của giáo viên đó.
-//  - CHỦ Ý giữ nguyên lịch sử điểm danh (diemDanhList/diemDanhGVList), lương (salaryHistory),
-//    bài học (kcLessons/kcClassCourse), buổi học (tietHocList/lichHocList) đã gắn với lớp này —
-//    giống hệt cách "xoá học viên"/"xoá giáo viên" hiện có KHÔNG xoá lịch sử liên quan của họ.
-//    Các màn hình liên quan (vd nhóm chat lớp) đã tự xử lý an toàn khi classId trỏ tới lớp không
-//    còn tồn tại (xem comment "mồ côi" ở appSyncAdminSchoolUi/msgSyncAllGroups).
+//  - CHỦ Ý vẫn giữ nguyên lịch sử lương (salaryRecords/salaryHistory) vì gắn với giáo viên,
+//    không gắn với lớp.
 //  - Dùng pattern xoá-lạc-quan-rồi-await-rồi-rollback-nếu-lỗi giống deleteStudentAdmin/
 //    deleteTeacherAdmin2, để không đánh lừa Admin khi lưu lên Supabase thất bại.
 async function confirmEndClass(){
@@ -8243,22 +8288,52 @@ async function confirmEndClass(){
   const input = document.getElementById('ecmCodeInput').value.trim();
   if(input !== c.code){ showToast('⚠️ Mã lớp không đúng, vui lòng thử lại'); return; }
 
-  // snapshot để khôi phục nếu lưu thất bại
+  // ----- snapshot toàn bộ để khôi phục nếu lưu thất bại -----
   const orphanedStudents = adminStudents.filter(s=>s.classId===c.id);
   const studentSnapshot = orphanedStudents.map(s=>({id:s.id, classId:s.classId}));
   const linkedTeacher = c.teacherId ? adminTeachers2.find(t=>t.id===c.teacherId) : null;
   const teacherSnapshot = linkedTeacher ? {id:linkedTeacher.id, classIds:(linkedTeacher.classIds||[]).slice()} : null;
 
+  const removedLich = lichHocList.filter(l=>l.classId===c.id);
+  const lichIds = removedLich.map(l=>l.id);
+  const removedTiet = tietHocList.filter(t=>lichIds.includes(t.lichHocId));
+  const tietIds = removedTiet.map(t=>t.id);
+  const removedDangKy = dangKyList.filter(d=>tietIds.includes(d.lessonId));
+  const removedDdHv = diemDanhList.filter(d=>tietIds.includes(d.tietHocId));
+  const removedDdGv = diemDanhGVList.filter(d=>tietIds.includes(d.tietHocId));
+  const removedKcCC = kcClassCourse.filter(x=>x.classId===c.id);
+  const removedGroups = msgGroups.filter(g=>g.classId===c.id);
+  const groupIds = removedGroups.map(g=>g.id);
+  const removedMsgs = msgMessages.filter(m=>groupIds.includes(m.groupId));
+
+  // ----- xoá lạc quan trên UI -----
   adminClasses = adminClasses.filter(x=>x.id!==c.id);
   orphanedStudents.forEach(s=>{ s.classId = null; });
   if(linkedTeacher && Array.isArray(linkedTeacher.classIds)) linkedTeacher.classIds = linkedTeacher.classIds.filter(id=>id!==c.id);
+  lichHocList = lichHocList.filter(l=>l.classId!==c.id);
+  tietHocList = tietHocList.filter(t=>!tietIds.includes(t.id));
+  dangKyList = dangKyList.filter(d=>!tietIds.includes(d.lessonId));
+  diemDanhList = diemDanhList.filter(d=>!tietIds.includes(d.tietHocId));
+  diemDanhGVList = diemDanhGVList.filter(d=>!tietIds.includes(d.tietHocId));
+  kcClassCourse = kcClassCourse.filter(x=>x.classId!==c.id);
+  msgMessages = msgMessages.filter(m=>!groupIds.includes(m.groupId));
+  msgGroups = msgGroups.filter(g=>!groupIds.includes(g.id));
 
   closeModal('endClassModalBg');
   renderClassTable();
   renderStudentTable();
   if(typeof renderTeacherTable2==='function') renderTeacherTable2();
+  if(typeof lichOnCloudSync==='function') lichOnCloudSync();
+  if(typeof kcOnCloudSync==='function') kcOnCloudSync();
+  if(typeof msgOnCloudSync==='function') msgOnCloudSync();
 
-  const saves = [appSave('adminClasses', {silent:true}), appSave('adminStudents', {silent:true})];
+  const saves = [
+    appSave('adminClasses', {silent:true}), appSave('adminStudents', {silent:true}),
+    appSave('lichHocList', {silent:true}), appSave('tietHocList', {silent:true}),
+    appSave('dangKyList', {silent:true}), appSave('diemDanhList', {silent:true}),
+    appSave('diemDanhGVList', {silent:true}), appSave('kcClassCourse', {silent:true}),
+    appSave('msgGroups', {silent:true}), appSave('msgMessages', {silent:true})
+  ];
   if(linkedTeacher) saves.push(appSave('adminTeachers2', {silent:true}));
   const results = await Promise.all(saves);
   const failed = results.find(r=>r && r.ok===false);
@@ -8267,14 +8342,25 @@ async function confirmEndClass(){
     adminClasses.splice(idx, 0, c);
     studentSnapshot.forEach(snap=>{ const s=adminStudents.find(x=>x.id===snap.id); if(s) s.classId = snap.classId; });
     if(teacherSnapshot){ const t=adminTeachers2.find(x=>x.id===teacherSnapshot.id); if(t) t.classIds = teacherSnapshot.classIds; }
+    lichHocList = lichHocList.concat(removedLich);
+    tietHocList = tietHocList.concat(removedTiet);
+    dangKyList = dangKyList.concat(removedDangKy);
+    diemDanhList = diemDanhList.concat(removedDdHv);
+    diemDanhGVList = diemDanhGVList.concat(removedDdGv);
+    kcClassCourse = kcClassCourse.concat(removedKcCC);
+    msgGroups = msgGroups.concat(removedGroups);
+    msgMessages = msgMessages.concat(removedMsgs);
     renderClassTable();
     renderStudentTable();
     if(typeof renderTeacherTable2==='function') renderTeacherTable2();
+    if(typeof lichOnCloudSync==='function') lichOnCloudSync();
+    if(typeof kcOnCloudSync==='function') kcOnCloudSync();
+    if(typeof msgOnCloudSync==='function') msgOnCloudSync();
     showToast('❌ Kết thúc khoá học KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — lớp đã được khôi phục.');
     return;
   }
   const orphanNote = orphanedStudents.length ? ` — ${orphanedStudents.length} học viên đang "chưa có lớp", vào Quản lý học viên để gán lớp mới.` : '';
-  showToast(`✅ Đã xoá lớp "${qdEsc(c.name)}"${orphanNote}`);
+  showToast(`✅ Đã xoá lớp "${qdEsc(c.name)}" cùng toàn bộ lịch học, tin nhắn, điểm danh liên quan${orphanNote}`);
 }
 
 /* ----- Học viên ----- */
@@ -8441,12 +8527,12 @@ function renderTeacherTable2(){
   const filterClass = document.getElementById('gvFilterClass2').value;
   let list = adminTeachers2.filter(t=>{
     const matchQ = !q || t.name.toLowerCase().includes(q) || t.code.toLowerCase().includes(q);
-    const matchClass = !filterClass || t.classIds.includes(filterClass);
+    const matchClass = !filterClass || (t.classIds||[]).includes(filterClass);
     return matchQ && matchClass;
   });
   if(!list.length){ wrap.innerHTML = '<tr><td>Không tìm thấy giáo viên nào</td></tr>'; return; }
   wrap.innerHTML = '<tr class="tbl-head-row"><th>Giáo viên</th><th>Lớp phụ trách</th><th>Mô hình</th><th>Hành động</th></tr>' + list.map(t=>{
-    const classNames = t.classIds.map(id=>{ const c=adminClasses.find(c=>c.id===id); return c?c.name:null; }).filter(Boolean);
+    const classNames = (t.classIds||[]).map(id=>{ const c=adminClasses.find(c=>c.id===id); return c?c.name:null; }).filter(Boolean);
     return `<tr>
       <td data-label="Giáo viên">${qdEsc(t.name)}<br><span class="tag gold">${qdEsc(t.code)}</span></td>
       <td data-label="Lớp phụ trách">${classNames.length ? classNames.map(qdEsc).join(', ') : '<span style="color:var(--ink-soft);">—</span>'}</td>
@@ -8469,7 +8555,7 @@ function editTeacherAdmin2(id){
   document.getElementById('gvEditTeachMode2').value = t.teachMode;
   document.getElementById('gvEditWorkMode2').value = t.workMode;
   const sel = document.getElementById('gvEditClasses2');
-  Array.from(sel.options).forEach(o=>o.selected = t.classIds.includes(o.value));
+  Array.from(sel.options).forEach(o=>o.selected = (t.classIds||[]).includes(o.value));
   openModal('teacherEditModalBg2');
 }
 // [FIX-GIÁO-VIÊN-MẤT-CHỈNH-SỬA] Trước đây appSave() không được chờ — nếu lưu thất bại,
@@ -10203,44 +10289,69 @@ setInterval(function attendanceGlobalTick(){
 
 /* ============ admin: Khoá học management ============ */
 let editingCourseId = null;
+// [FIX-ẢNH-KHOÁ-HỌC-BASE64] Trước đây courseImgData giữ thẳng chuỗi base64 của ảnh và
+// chuỗi này được lưu NGUYÊN VĂN vào state 'courses' -> payload phình to (mỗi ảnh vài trăm
+// KB–vài MB), dễ vượt quota localStorage (lỗi bị nuốt âm thầm) và dễ khiến bản ghi không
+// được lưu bền trên Supabase -> khoá học "biến mất" sau khi thoát ra vào lại dù bấm LƯU
+// báo thành công. Giờ tách làm 2: courseImgFile giữ File gốc (chỉ để upload lúc bấm LƯU),
+// courseImgData chỉ dùng xem trước ảnh (blob URL tạm, KHÔNG lưu vào state).
+let courseImgFile = null;
 let courseImgData = null;
 function handleCourseImg(e){
   const f = e.target.files[0];
   if(!f) return;
-  const reader = new FileReader();
-  reader.onload = ()=>{
-    courseImgData = reader.result;
-    document.getElementById('courseImgPreview').src = courseImgData;
-    document.getElementById('courseImgPreviewWrap').style.display='';
-  };
-  reader.readAsDataURL(f);
+  courseImgFile = f;
+  courseImgData = URL.createObjectURL(f); // chỉ để xem trước, không lưu vào state
+  document.getElementById('courseImgPreview').src = courseImgData;
+  document.getElementById('courseImgPreviewWrap').style.display='';
 }
 async function saveCourseAdmin(){
   const name = document.getElementById('ctName').value.trim();
   const content = document.getElementById('ctContent').value.trim();
   if(!name || !content){ showToast('⚠️ Vui lòng nhập tên và nội dung khoá học'); return; }
+  const btn = document.getElementById('ctSaveBtn');
+  const prevBtnText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'ĐANG LƯU...'; }
+  // [FIX-ẢNH-KHOÁ-HỌC-BASE64] Upload ảnh (nếu có chọn ảnh mới) lên Supabase Storage TRƯỚC,
+  // chỉ lưu URL (chuỗi ngắn) vào state 'courses' — giống cách chat/banner/bài nộp đã làm.
+  // Nếu KHÔNG chọn ảnh mới (courseImgFile rỗng) thì giữ nguyên ảnh cũ của khoá học.
+  let uploadedUrl = null;
+  if(courseImgFile){
+    try{
+      const up = await sbUploadFile(courseImgFile, 'courses');
+      uploadedUrl = up.url;
+    }catch(e){
+      if(btn){ btn.disabled = false; btn.textContent = prevBtnText; }
+      showToast('❌ Tải ảnh khoá học lên KHÔNG thành công: '+((e&&e.message)||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
+  }
   // Lưu snapshot để rollback nếu appSave thất bại — không để UI báo "đã lưu" trong khi
   // Supabase thực ra từ chối (mất quyền/mất mạng), vì như vậy khoá học sẽ "bay màu" ngay
   // khi trang được tải lại từ nguồn dữ liệu thật (Supabase).
   const snapshot = courses.map(c=>({...c}));
   let isEdit = false;
+  let oldImageUrl = null;
   if(editingCourseId){
     isEdit = true;
     const c = courses.find(c=>c.id===editingCourseId);
-    if(c){ c.name=name; c.desc=content; if(courseImgData) c.image=courseImgData; }
+    if(c){ c.name=name; c.desc=content; if(uploadedUrl){ oldImageUrl = c.image; c.image=uploadedUrl; } }
   } else {
-    courses.unshift({id:'c'+Date.now(), name, desc:content, image:courseImgData});
+    courses.unshift({id:'c'+Date.now(), name, desc:content, image:uploadedUrl});
   }
   renderCourseGrid();
   renderCourseHistory();
   const res = await appSave('courses', {silent:true});
+  if(btn){ btn.disabled = false; btn.textContent = prevBtnText; }
   if(res && res.ok===false){
     courses = snapshot;
     renderCourseGrid();
     renderCourseHistory();
+    if(uploadedUrl) sbDeleteFileByUrl(uploadedUrl); // dọn rác: ảnh đã upload nhưng bản ghi không lưu được
     showToast('❌ Lưu khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
     return;
   }
+  if(oldImageUrl && oldImageUrl!==uploadedUrl) sbDeleteFileByUrl(oldImageUrl); // dọn ảnh cũ đã bị thay thế
   if(isEdit){
     showToast(`✅ Đã cập nhật khoá học: "${name}"`);
     cancelEditCourse();
@@ -10255,6 +10366,7 @@ function editCourseAdmin(id){
   editingCourseId = id;
   document.getElementById('ctName').value = c.name;
   document.getElementById('ctContent').value = c.desc;
+  courseImgFile = null; // chưa chọn ảnh mới -> lúc lưu sẽ giữ nguyên ảnh cũ (URL) của khoá học
   courseImgData = c.image || null;
   document.getElementById('courseImgInput').value = '';
   if(c.image){ document.getElementById('courseImgPreview').src=c.image; document.getElementById('courseImgPreviewWrap').style.display=''; }
@@ -10274,6 +10386,7 @@ function clearCourseForm(){
   document.getElementById('courseImgInput').value='';
   document.getElementById('courseImgPreviewWrap').style.display='none';
   courseImgData=null;
+  courseImgFile=null;
 }
 async function deleteCourseAdmin(id){
   if(!confirm('Bạn có chắc muốn xoá khoá học này không?')) return;
@@ -10292,6 +10405,7 @@ async function deleteCourseAdmin(id){
     showToast('❌ Xoá khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — khoá học đã được khôi phục.');
     return;
   }
+  if(removed.image) sbDeleteFileByUrl(removed.image); // dọn ảnh rác trên Storage
   showToast('🗑️ Đã xoá khoá học');
 }
 function viewCourseAdmin(id){
@@ -10902,19 +11016,22 @@ function qdInsertTok(tok){
   ta.value = ta.value.slice(0,start) + tok + ta.value.slice(end);
   ta.focus(); ta.selectionStart = ta.selectionEnd = start + tok.length;
 }
+// [FIX-PDF-QUYẾT-ĐỊNH-BASE64] Trước đây _qdPendingPdf.data giữ base64 và được lưu NGUYÊN
+// VĂN vào state 'decisionForms' -> payload phình to, dễ khiến biểu mẫu mất khi thoát ra vào
+// lại. Giờ _qdPendingPdfFile giữ File gốc chờ upload; qdSaveForm() upload thật lên Storage
+// rồi mới gán _qdPendingPdf = {name, data:URL}.
+let _qdPendingPdfFile = null;
 function qdHandleFormPdf(e){
   const file=e.target.files[0];
   if(!file) return;
-  const reader=new FileReader();
-  reader.onload=()=>{
-    _qdPendingPdf = { name:file.name, data:reader.result };
-    document.getElementById('qdFormPdfName').textContent = '📎 '+file.name;
-  };
-  reader.readAsDataURL(file);
+  _qdPendingPdfFile = file;
+  _qdPendingPdf = null; // sẽ có URL thật sau khi upload lúc bấm lưu
+  document.getElementById('qdFormPdfName').textContent = '📎 '+file.name;
 }
 function openQdFormAdd(formId){
   _qdEditingFormId = formId || null;
   _qdPendingPdf = null;
+  _qdPendingPdfFile = null;
   const f = formId ? decisionForms.find(x=>x.id===formId) : null;
   document.getElementById('qdFormAddTitle').textContent = f ? 'Sửa đơn' : '➕ Thêm đơn';
   const targetRadio = document.querySelector(`input[name="qdFormTarget"][value="${f ? f.targetRole : 'student'}"]`);
@@ -10939,7 +11056,20 @@ async function qdSaveForm(){
   if(!online && !offline){ showToast('⚠️ Vui lòng chọn ít nhất một hình thức'); return; }
   const onlineText=document.getElementById('qdFormOnlineText').value;
   if(online && !onlineText.trim()){ showToast('⚠️ Vui lòng nhập nội dung mẫu đơn online'); return; }
-  if(offline && !_qdPendingPdf){ showToast('⚠️ Vui lòng tải file PDF cho hình thức offline'); return; }
+  if(offline && !_qdPendingPdf && !_qdPendingPdfFile){ showToast('⚠️ Vui lòng tải file PDF cho hình thức offline'); return; }
+
+  let newlyUploadedPdfUrl = null;
+  if(_qdPendingPdfFile){
+    try{
+      const up = await sbUploadFile(_qdPendingPdfFile, 'decisions');
+      _qdPendingPdf = { name: _qdPendingPdfFile.name, data: up.url };
+      _qdPendingPdfFile = null;
+      newlyUploadedPdfUrl = up.url;
+    }catch(e){
+      showToast('❌ Tải file PDF lên KHÔNG thành công: '+((e&&e.message)||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
+  }
 
   let successMsg, prevSnapshot, newFormId;
   if(_qdEditingFormId){
@@ -10958,6 +11088,7 @@ async function qdSaveForm(){
   if(res && res.ok===false){
     if(newFormId){ decisionForms = decisionForms.filter(x=>x.id!==newFormId); }
     else { const f=decisionForms.find(x=>x.id===_qdEditingFormId); if(f) Object.assign(f, prevSnapshot); }
+    if(newlyUploadedPdfUrl) sbDeleteFileByUrl(newlyUploadedPdfUrl);
     showToast('❌ Lưu biểu mẫu KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
     return;
   }
