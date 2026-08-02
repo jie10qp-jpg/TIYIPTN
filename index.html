@@ -3652,13 +3652,30 @@ function showToast(msg){
 
 /* ============ mini loading spinner helpers ============
    Dùng showLoader()/hideLoader() bất cứ khi nào cần chờ dữ liệu
-   (vd: sau này gọi API/database) — vòng xoay vàng nhỏ sẽ hiện giữa màn hình. */
-function showLoader(msg){
+   (vd: sau này gọi API/database) — vòng xoay vàng nhỏ sẽ hiện giữa màn hình.
+   [FIX-LOADER-VÔ-HẠN] Trước đây showLoader() không có timeout: nếu kết nối chậm/treo (mạng
+   yếu, server không phản hồi...) mà nơi gọi quên hideLoader() trong nhánh lỗi, loader có thể
+   hiện MÃI MÃI, chặn hoàn toàn thao tác của người dùng mà không có cách nào thoát ra. Giờ mặc
+   định tự ẩn sau LOADER_MAX_MS và báo lỗi, coi như "quá thời gian chờ". Nơi gọi vẫn có thể tự
+   hideLoader() sớm hơn khi tải xong bình thường (sẽ huỷ timer này), hoặc truyền timeoutMs riêng
+   (0 = tắt timeout, dùng cho các trường hợp cố ý chờ lâu và tự kiểm soát). */
+const LOADER_MAX_MS = 20000;
+let _loaderTimeoutTimer = null;
+function showLoader(msg, timeoutMs){
   const lbl = document.getElementById('loaderMsg');
   if(lbl) lbl.textContent = msg || 'Đang tải';
   document.getElementById('loaderOverlay')?.classList.add('open');
+  clearTimeout(_loaderTimeoutTimer);
+  const ms = (typeof timeoutMs === 'number') ? timeoutMs : LOADER_MAX_MS;
+  if(ms > 0){
+    _loaderTimeoutTimer = setTimeout(()=>{
+      document.getElementById('loaderOverlay')?.classList.remove('open');
+      showToast('⚠️ Kết nối quá chậm hoặc bị gián đoạn, vui lòng thử lại.');
+    }, ms);
+  }
 }
 function hideLoader(){
+  clearTimeout(_loaderTimeoutTimer);
   document.getElementById('loaderOverlay')?.classList.remove('open');
 }
 
@@ -4022,9 +4039,7 @@ async function sbRouteUserToPortal(user) {
     }
   } catch (err) {
     console.error('Lỗi xác định vai trò:', err);
-    // [DEBUG TẠM THỜI] Hiện chi tiết lỗi thật ra toast để tìm nguyên nhân.
-    // Sau khi tìm ra lỗi, nhớ đổi lại dòng showToast bên dưới về bản gốc.
-    showToast('❌ DEBUG2: ' + (err && err.message ? err.message : String(err)) + ' | ' + (err && err.stack ? err.stack.split('\n').slice(0,2).join(' >> ') : ''));
+    showToast('❌ Không thể xác định vai trò tài khoản, vui lòng thử đăng nhập lại.');
     showScreen('screen-login');
   }
 }
@@ -4518,7 +4533,10 @@ function renderAdminTasksPane(){
     `<div class="todo-item" style="cursor:pointer;" onclick="adminTaskGoSupport()"><div class="notif-item-dot"></div><div class="info"><b>🛟 Yêu cầu hỗ trợ mới</b><span>${s.type||'Hỗ trợ'} · ${typeof fmtNotifDate==='function'?fmtNotifDate(s.createdAt||Date.now()):''}</span></div><div class="badge">Xử lý</div></div>`
   ).join('');
   html += decisionItems.map(d=>
-    `<div class="todo-item" style="cursor:pointer;" onclick="adminTaskGoDecisions()"><div class="notif-item-dot"></div><div class="info"><b>📄 Chờ xét duyệt — ${d.targetName||(d.targetType==='student'?'Học viên':'Giáo viên')}</b><span>${d.formName||d.content||'Quyết định mới'}</span></div><div class="badge">Xét duyệt</div></div>`
+    // [FIX-XSS] targetName và formName/content trước đây bơm thẳng vào innerHTML không qua qdEsc.
+    // targetName đến từ tên tự khai của HV/GV, content là nội dung đơn online do người dùng gõ
+    // tự do (qdBuildFilledText) -> có thể chèn HTML/script. Bọc qdEsc để tránh XSS lưu trữ.
+    `<div class="todo-item" style="cursor:pointer;" onclick="adminTaskGoDecisions()"><div class="notif-item-dot"></div><div class="info"><b>📄 Chờ xét duyệt — ${qdEsc(d.targetName||(d.targetType==='student'?'Học viên':'Giáo viên'))}</b><span>${qdEsc(d.formName||d.content||'Quyết định mới')}</span></div><div class="badge">Xét duyệt</div></div>`
   ).join('');
   html += attendanceItems.map(d=>{
     const teacher = (typeof adminTeachers2!=='undefined' ? adminTeachers2.find(t=>t.id===d.teacherId) : null);
@@ -4967,7 +4985,7 @@ function renderAdHistory(){
     </div>`).join('');
 }
 
-function saveAd(){
+async function saveAd(){
   const title=document.getElementById('qcTitle').value.trim();
   const content=document.getElementById('qcContent').value.trim();
   const expiry=document.getElementById('qcExpiry').value;
@@ -4976,15 +4994,33 @@ function saveAd(){
   const link=document.getElementById('qcLink').value.trim() || null;
   if(!title || !content){ showToast('⚠️ Vui lòng nhập tiêu đề và nội dung quảng cáo'); return; }
 
+  // [FIX-QUẢNG-CÁO-KHÔNG-LƯU-CHẮC] Trước đây appSave('adList') "bắn rồi quên" — nếu lưu
+  // thất bại, quảng cáo chỉ tồn tại trên máy này và biến mất khi F5 dù đã báo "đã lưu".
   if(editingAdId){
     const ad = adList.find(a=>a.id===editingAdId);
+    const prevSnapshot = ad ? {...ad} : null;
     if(ad){ ad.title=title; ad.content=content; ad.expiry=expiry; ad.tone=tone; ad.linkedNotifId=linkedNotifId; ad.link=link; }
-    appSave('adList');
+    renderAdBanners(); renderAdHistory();
+    const res = await appSave('adList');
+    if(res && res.ok===false){
+      if(ad && prevSnapshot) Object.assign(ad, prevSnapshot);
+      renderAdBanners(); renderAdHistory();
+      showToast('❌ Cập nhật quảng cáo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     showToast(`✅ Đã cập nhật quảng cáo: "${title}"`);
     cancelEditAd();
   } else {
-    adList.unshift({id:'ad'+Date.now(), title, content, expiry, tone, linkedNotifId, link});
-    appSave('adList');
+    const entry = {id:'ad'+Date.now(), title, content, expiry, tone, linkedNotifId, link};
+    adList.unshift(entry);
+    renderAdBanners(); renderAdHistory();
+    const res = await appSave('adList');
+    if(res && res.ok===false){
+      adList = adList.filter(a=>a.id!==entry.id);
+      renderAdBanners(); renderAdHistory();
+      showToast('❌ Lưu quảng cáo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     showToast(`✅ Đã lưu quảng cáo: "${title}"`);
     clearAdForm();
   }
@@ -5234,7 +5270,7 @@ function openNotifCountdown(draft, fromSchedule){
   },1000);
 }
 function notifCountdownNow(){ clearInterval(notifCountdownTimer); publishNotif(notifDraft); }
-function notifCountdownEdit(){
+async function notifCountdownEdit(){
   clearInterval(notifCountdownTimer);
   closeModal('notifCountdownModalBg');
   document.getElementById('notifTitle').value = notifDraft.title;
@@ -5257,9 +5293,19 @@ function notifCountdownEdit(){
   if(radio){ radio.checked=true; radio.dispatchEvent(new Event('change')); }
   if(notifDraft._fromSchedule){
     if(notifDraft._timer) clearTimeout(notifDraft._timer);
+    // [FIX-THÔNG-BÁO-HẸN-GIỜ-KHÔNG-LƯU-CHẮC] Trước đây appSave('notifications') "bắn rồi
+    // quên" — nếu lưu thất bại, thông báo hẹn giờ bị xoá khỏi màn hình này nhưng vẫn còn
+    // trên server, gây lệch dữ liệu giữa các thiết bị.
+    const prevNotifications = notifications;
     notifications = notifications.filter(x=>x.id!==notifDraft.id);
-    appSave('notifications');
     renderNotifAdminHistory();
+    const res = await appSave('notifications');
+    if(res && res.ok===false){
+      notifications = prevNotifications;
+      renderNotifAdminHistory();
+      showToast('❌ Huỷ đếm ngược KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
   }
   showToast('✏️ Đã huỷ đếm ngược, bạn có thể chỉnh sửa lại nội dung');
 }
@@ -5971,24 +6017,42 @@ async function bcbSaveReport(){
   }
   if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = origBtnText; }
 
+  // [FIX-BANNER-KHÔNG-LƯU-CHẮC] Trước đây appSave('bcbReports') "bắn rồi quên", và việc dọn
+  // file mồ côi chạy NGAY sau đó không chờ kết quả — nếu lưu thất bại, ảnh/PDF cũ vẫn đang
+  // được bản ghi thật (trên server) tham chiếu có thể bị xoá oan khỏi Storage. Nay phải chờ
+  // appSave() thành công rồi mới dọn file, và rollback state nếu lưu thất bại.
+  let prevSnapshot = null, newEntryId = null;
   if(bcbEditingId){
     const r = bcbReports.find(x=>x.id===bcbEditingId);
     if(r){
+      prevSnapshot = {...r};
       Object.assign(r, {title, content, link, images, pdfData, pdfName, notifId, targetType, targetClassIds, countdownSec, startAt, endAt, viewLimit, password});
     }
-    showToast('✅ Đã cập nhật báo cáo banner');
   } else {
+    newEntryId = 'bcb'+Date.now();
     bcbReports.unshift({
-      id:'bcb'+Date.now(), title, content, link,
+      id:newEntryId, title, content, link,
       images, pdfData, pdfName,
       notifId, targetType, targetClassIds,
       countdownSec, startAt, endAt, viewLimit, password,
       createdAt: Date.now(), viewCounts:{}
     });
-    showToast('✅ Đã tạo báo cáo banner');
   }
-  appSave('bcbReports');
-  /* [FIX] Dọn file mồ côi: sau khi lưu xong, ảnh/PDF cũ nào không còn nằm trong
+  bcbRenderHistory();
+  const res = await appSave('bcbReports');
+  if(res && res.ok===false){
+    if(bcbEditingId){
+      const r = bcbReports.find(x=>x.id===bcbEditingId);
+      if(r && prevSnapshot) Object.assign(r, prevSnapshot);
+    } else if(newEntryId){
+      bcbReports = bcbReports.filter(x=>x.id!==newEntryId);
+    }
+    bcbRenderHistory();
+    showToast('❌ Lưu báo cáo banner KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast(bcbEditingId ? '✅ Đã cập nhật báo cáo banner' : '✅ Đã tạo báo cáo banner');
+  /* Dọn file mồ côi: CHỈ sau khi lưu thành công, ảnh/PDF cũ nào không còn nằm trong
      phiên bản mới (bị xoá khỏi form trước khi lưu) thì xoá luôn khỏi Storage. */
   const keptUrlsSet = new Set(images);
   const removedImages = window._bcbFormOrigImages.filter(u=>!keptUrlsSet.has(u));
@@ -6045,15 +6109,25 @@ function bcbEditReport(id){
 
 /* ---- admin: xoá ---- */
 function bcbAskDelete(id){ bcbDeletingId = id; openModal('bcbDeleteConfirmModalBg'); }
-function bcbConfirmDelete(){
-  const r = bcbReports.find(x=>x.id===bcbDeletingId);
+async function bcbConfirmDelete(){
+  const idx = bcbReports.findIndex(x=>x.id===bcbDeletingId);
+  const r = idx>=0 ? bcbReports[idx] : null;
   bcbReports = bcbReports.filter(x=>x.id!==bcbDeletingId);
-  appSave('bcbReports');
   closeModal('bcbDeleteConfirmModalBg');
   if(bcbEditingId===bcbDeletingId) bcbClearForm();
   bcbRenderHistory();
+  // [FIX-XOÁ-BANNER-KHÔNG-LƯU-CHẮC] Trước đây appSave('bcbReports') "bắn rồi quên" và xoá
+  // file Storage ngay lập tức — nếu lưu thất bại, report vẫn còn trên server nhưng ảnh/PDF
+  // của nó đã bị xoá oan. Nay chờ lưu thành công mới xoá file, và rollback nếu lưu thất bại.
+  const res = await appSave('bcbReports');
+  if(res && res.ok===false){
+    if(r) bcbReports.splice(Math.min(idx, bcbReports.length), 0, r);
+    bcbRenderHistory();
+    showToast('❌ Xoá báo cáo banner KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
   showToast('🗑️ Đã xoá báo cáo banner');
-  /* [FIX] Xoá luôn ảnh/PDF của báo cáo này khỏi Storage, tránh tích rác vĩnh viễn. */
+  /* Xoá luôn ảnh/PDF của báo cáo này khỏi Storage, tránh tích rác vĩnh viễn. */
   if(r) bcbDeleteReportFiles(r);
 }
 function bcbDeleteReportFiles(r){
@@ -6072,14 +6146,28 @@ function bcbViewReport(id){
 
 /* ---- tự xoá vĩnh viễn báo cáo đã hết hạn quá lâu (30 ngày) ---- */
 function bcbCleanupExpired(){
+  // Hàm này được gọi đồng bộ ở nhiều nơi trong luồng render (bcbRenderHistory,
+  // bcbActiveReportsFor...) nên KHÔNG thể chuyển thành async/await ở đây — việc xoá khỏi
+  // mảng bcbReports vẫn cần diễn ra ngay để hiển thị đúng. Nhưng appSave() và việc xoá file
+  // Storage được xử lý ở nền một cách an toàn hơn bên dưới.
   const now = Date.now();
   const before = bcbReports.length;
   const expired = bcbReports.filter(r => r.endAt && (now - r.endAt) > 30*86400000);
   bcbReports = bcbReports.filter(r => !(r.endAt && (now - r.endAt) > 30*86400000));
   if(bcbReports.length!==before){
-    appSave('bcbReports');
-    /* [FIX] Dọn luôn file Storage của các báo cáo bị tự động xoá do hết hạn quá lâu. */
-    expired.forEach(r=>bcbDeleteReportFiles(r));
+    // [FIX-DỌN-BANNER-HẾT-HẠN-KHÔNG-LƯU-CHẮC] Trước đây appSave() "bắn rồi quên" và file
+    // Storage bị xoá ngay lập tức — nếu lưu thất bại, report vẫn còn trên server nhưng ảnh/
+    // PDF của nó đã mất. Nay chỉ xoá file SAU KHI appSave() xác nhận thành công, và khôi
+    // phục lại các report vào mảng nếu lưu thất bại.
+    appSave('bcbReports').then(res=>{
+      if(res && res.ok===false){
+        expired.forEach(r=>{ if(!bcbReports.some(x=>x.id===r.id)) bcbReports.push(r); });
+        bcbRenderHistory();
+        console.error('[Banner] Tự động dọn báo cáo hết hạn quá lâu KHÔNG thành công:', res.message);
+        return;
+      }
+      expired.forEach(r=>bcbDeleteReportFiles(r));
+    }).catch(e=>console.error('[Banner] Tự động dọn báo cáo hết hạn quá lâu lỗi:', e));
   }
 }
 
@@ -6262,7 +6350,9 @@ function bcbRenderBanner(r){
   const key = bcbUserKey(currentRole);
   r.viewCounts = r.viewCounts || {};
   r.viewCounts[key] = (r.viewCounts[key]||0) + 1;
-  appSave('bcbReports');
+  // Đếm lượt xem chỉ mang tính thống kê tham khảo, không chặn hiển thị banner khi lưu chậm/
+  // lỗi mạng — nhưng vẫn cần biết nếu lưu thất bại thay vì âm thầm bỏ qua hoàn toàn.
+  appSave('bcbReports').catch(e=>console.warn('[Banner] Lưu lượt xem thất bại:', e));
 
   document.getElementById('bcbBTitle').textContent = r.title;
   document.getElementById('bcbBContent').textContent = r.content||'';
@@ -6491,12 +6581,22 @@ function tcRenderClassTbl(){
     </tr>`;
   }).join('');
 }
-function tcSetClassColor(classId, tone){
-  tcClassColor[classId] = tone;
+async function tcSetClassColor(classId, tone){
+  // [FIX-MÀU-LỚP-KHÔNG-LƯU-CHẮC] Trước đây appSave('tcClassColor') "bắn rồi quên" — nếu lưu
+  // thất bại, màu chỉ đổi tạm trên máy này và mất khi F5 dù đã báo "đã lưu".
+  const prevTone = tcClassColor[classId];
   const dot = document.getElementById('tcSwatch_'+classId);
+  const prevBg = dot ? dot.style.background : null;
+  tcClassColor[classId] = tone;
   if(dot) dot.style.background = TC_TONES.find(t=>t.v===tone).hex;
+  const res = await appSave('tcClassColor');
+  if(res && res.ok===false){
+    if(prevTone===undefined) delete tcClassColor[classId]; else tcClassColor[classId] = prevTone;
+    if(dot) dot.style.background = prevBg;
+    showToast('❌ Cập nhật màu nền lớp KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã cập nhật màu nền cho lớp');
-  appSave('tcClassColor');
 }
 function tcOpenClassStudents(classId){
   tcCurrentFeeClassId = classId;
@@ -7754,8 +7854,8 @@ function kcSbViewSubmission(lessonId, studentId){
   }).join('');
   document.getElementById('kcVsBody').innerHTML = `<div class="rte-editor readonly">${rteSanitize(sub.content)}</div>${files}<div class="form-note" style="margin-top:8px;">Nộp lúc: ${qdEsc(sub.submittedAt||'')}</div>`;
   openModal('kcViewSubModalBg');
-  if(currentRole==='admin'){ sub.seenByAdmin = true; appSave('kcSubmissions'); if(typeof renderAdminTasksPane==='function') renderAdminTasksPane(); }
-  if(currentRole==='teacher'){ sub.seenByTeacher = true; appSave('kcSubmissions'); if(typeof renderRoleData==='function') renderRoleData('teacher'); }
+  if(currentRole==='admin'){ sub.seenByAdmin = true; appSave('kcSubmissions').catch(e=>console.warn('[Bài tập] Lưu trạng thái đã xem thất bại:', e)); if(typeof renderAdminTasksPane==='function') renderAdminTasksPane(); }
+  if(currentRole==='teacher'){ sub.seenByTeacher = true; appSave('kcSubmissions').catch(e=>console.warn('[Bài tập] Lưu trạng thái đã xem thất bại:', e)); if(typeof renderRoleData==='function') renderRoleData('teacher'); }
 }
 
 /* ---- chấm đỏ báo bài tập vừa nộp: dùng cho cả admin và giáo viên ---- */
@@ -8697,9 +8797,17 @@ var diemDanhGVList = [];  // {id, tietHocId, teacherId, hasTaught, time} [FIX-TD
 // appRegisterState để lưu bền lên Supabase + tự đồng bộ nhiều thiết bị (không cần F5).
 // appSaveSchedule() dùng chung cho các thao tác đụng tới nhiều mảng cùng lúc; các nơi chỉ đổi
 // đúng 1 mảng thì gọi appSave('tênMảng') riêng lẻ ở đúng chỗ mutate.
-function appSaveSchedule(){
-  appSave('lichHocList'); appSave('weekSettings'); appSave('weekOverrides');
-  appSave('tietHocList'); appSave('dangKyList'); appSave('diemDanhList'); appSave('diemDanhGVList');
+// [FIX-LỊCH-HỌC-KHÔNG-LƯU-CHẮC] Trước đây các mảng được lưu "bắn rồi quên" song song, không
+// nơi nào biết được có lưu thành công hay không -> nếu lưu thất bại, lịch học mới/vừa xoá chỉ
+// tồn tại tạm trên máy này và biến mất khi F5 dù đã báo "đã lưu". Nay trả về Promise tổng hợp
+// kết quả để nơi gọi có thể await và rollback khi cần.
+async function appSaveSchedule(){
+  const results = await Promise.all([
+    appSave('lichHocList'), appSave('weekSettings'), appSave('weekOverrides'),
+    appSave('tietHocList'), appSave('dangKyList'), appSave('diemDanhList'), appSave('diemDanhGVList')
+  ]);
+  const failed = results.find(r=>r && r.ok===false);
+  return failed || {ok:true};
 }
 function lichOnCloudSync(){
   try{
@@ -8871,7 +8979,7 @@ function lichBuAutoEnd(){
 }
 
 /* ----- lưu cài đặt lịch học (LichHoc) ----- */
-function saveLichHoc(type){
+async function saveLichHoc(type){
   if(type==='1v1'){
     const classId = document.getElementById('lc11Class').value;
     const weeks = parseInt(document.getElementById('lc11Weeks').value,10);
@@ -8880,8 +8988,14 @@ function saveLichHoc(type){
     const start = parseDateInput(startVal);
     if(start.getDay()!==1){ showToast('⚠️ Ngày bắt đầu phải là Thứ Hai'); return; }
     const end = addDays(start, weeks*7-1);
-    lichHocList.push({id:'lich'+Date.now(), classId, type:'1v1', title:null, weekNumber:weeks, startDate:toISODate(start), endDate:toISODate(end), fixedSchedule:null, status:'active'});
-    appSaveSchedule();
+    const newLh11 = {id:'lich'+Date.now(), classId, type:'1v1', title:null, weekNumber:weeks, startDate:toISODate(start), endDate:toISODate(end), fixedSchedule:null, status:'active'};
+    lichHocList.push(newLh11);
+    const res11 = await appSaveSchedule();
+    if(res11 && res11.ok===false){
+      lichHocList = lichHocList.filter(x=>x.id!==newLh11.id);
+      showToast('❌ Lưu lịch học 1:1 KHÔNG thành công: '+(res11.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     document.getElementById('lc11Weeks').value=''; document.getElementById('lc11Start').value='';
     document.getElementById('lc11EndBox').textContent='Ngày kết thúc sẽ được tự động tính sau khi nhập số tuần và ngày bắt đầu hợp lệ.';
     showToast('✅ Đã lưu cài đặt lịch học 1:1');
@@ -8898,8 +9012,13 @@ function saveLichHoc(type){
     const end = addDays(start, weeks*7-1);
     const newLh = {id:'lich'+Date.now(), classId, type:'nhom', title:null, weekNumber:weeks, startDate:toISODate(start), endDate:toISODate(end), fixedSchedule:fixedText, status:'active'};
     lichHocList.push(newLh);
-    lichEnsureAllNhomWeeksGenerated(newLh);
-    appSaveSchedule();
+    const resNhom = await appSaveSchedule();
+    if(resNhom && resNhom.ok===false){
+      lichHocList = lichHocList.filter(x=>x.id!==newLh.id);
+      showToast('❌ Lưu cài đặt lịch học khoá học KHÔNG thành công: '+(resNhom.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
+    lichEnsureAllNhomWeeksGenerated(newLh); // tự lưu riêng (silent) + tự rollback nếu thất bại, xem định nghĩa hàm
     document.getElementById('lcNhomWeeks').value=''; document.getElementById('lcNhomStart').value=''; document.getElementById('lcNhomFixed').value='';
     document.getElementById('lcNhomEndBox').textContent='Ngày kết thúc sẽ được tự động tính sau khi nhập số tuần và ngày bắt đầu hợp lệ.';
     showToast('✅ Đã lưu cài đặt lịch học khoá học');
@@ -8913,8 +9032,14 @@ function saveLichHoc(type){
     if(start.getDay()!==1){ showToast('⚠️ Ngày bắt đầu phải là Thứ Hai'); return; }
     if(end.getDay()!==0){ showToast('⚠️ Ngày kết thúc phải là Chủ Nhật'); return; }
     if(Math.round((end-start)/86400000)!==6){ showToast('⚠️ Lớp bù chỉ diễn ra trong đúng 1 tuần (Thứ Hai - Chủ Nhật)'); return; }
-    lichHocList.push({id:'lich'+Date.now(), classId:null, type:'bu', title, weekNumber:1, startDate:toISODate(start), endDate:toISODate(end), fixedSchedule:null, status:'active'});
-    appSaveSchedule();
+    const newLhBu = {id:'lich'+Date.now(), classId:null, type:'bu', title, weekNumber:1, startDate:toISODate(start), endDate:toISODate(end), fixedSchedule:null, status:'active'};
+    lichHocList.push(newLhBu);
+    const resBu = await appSaveSchedule();
+    if(resBu && resBu.ok===false){
+      lichHocList = lichHocList.filter(x=>x.id!==newLhBu.id);
+      showToast('❌ Lưu lịch lớp bù KHÔNG thành công: '+(resBu.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     document.getElementById('lcBuTitle').value=''; document.getElementById('lcBuStart').value=''; document.getElementById('lcBuEnd').value='';
     showToast('✅ Đã lưu lịch lớp bù');
     lichRenderHistory('bu'); lichPopulateWeekSelect('bu');
@@ -8967,15 +9092,26 @@ function lichOpenDelete(id){
   document.getElementById('ldmCodeInput').value='';
   openModal('lichDeleteModalBg');
 }
-function confirmDeleteLichHoc(){
+async function confirmDeleteLichHoc(){
   const l = lichHocList.find(x=>x.id===lichPendingDeleteId);
   if(!l) return;
   const input = document.getElementById('ldmCodeInput').value.trim();
   const expected = l.type==='bu' ? l.title : (adminClasses.find(c=>c.id===l.classId)||{}).code;
   if(input!==expected){ showToast('⚠️ Thông tin xác nhận không đúng, vui lòng thử lại'); return; }
+  // [FIX-XOÁ-LỊCH-HỌC-KHÔNG-LƯU-CHẮC] Trước đây appSaveSchedule() "bắn rồi quên" — nếu lưu
+  // thất bại, lịch học (và các tiết học liên quan) vẫn hiện là đã xoá trên máy này nhưng
+  // thực ra vẫn còn nguyên trên server, gây lệch dữ liệu giữa các thiết bị.
+  const prevStatus = l.status;
+  const removedTietHoc = tietHocList.filter(t=>t.lichHocId===l.id);
   l.status='deleted';
   tietHocList = tietHocList.filter(t=>t.lichHocId!==l.id);
-  appSaveSchedule();
+  const res = await appSaveSchedule();
+  if(res && res.ok===false){
+    l.status = prevStatus;
+    if(removedTietHoc.length) tietHocList = tietHocList.concat(removedTietHoc);
+    showToast('❌ Xoá lịch học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('lichDeleteModalBg');
   lichRenderHistory(l.type);
   lichPopulateWeekSelect(l.type);
@@ -9011,13 +9147,17 @@ function lichPopulateWeekSelect(type){
 }
 
 /* ----- tự sinh buổi học từ lịch cố định (lớp khoá học) ----- */
-function lichAutoGenerateNhomWeek(lh, weekIndex){
+// opts.batch=true: chỉ tạo buổi học trong bộ nhớ và TRẢ VỀ danh sách id vừa tạo, KHÔNG tự appSave
+// — dùng khi cần sinh nhiều tuần cùng lúc (xem lichEnsureAllNhomWeeksGenerated) để gộp lại
+// thành 1 lần lưu duy nhất, tránh gọi appSave() (và Edge Function) lặp lại nhiều lần không cần thiết.
+function lichAutoGenerateNhomWeek(lh, weekIndex, opts){
+  opts = opts || {};
   const already = tietHocList.some(t=>t.lichHocId===lh.id && t.weekIndex===weekIndex);
-  if(already) return;
+  if(already) return opts.batch ? [] : undefined;
   const key = `${lh.id}_${weekIndex}`;
   const fixedText = weekOverrides[key] || lh.fixedSchedule;
   const parsed = parseFixedSchedule(fixedText);
-  if(!parsed) return;
+  if(!parsed) return opts.batch ? [] : undefined;
   const weekStart = addDays(parseDateInput(lh.startDate), weekIndex*7);
   const cls = adminClasses.find(c=>c.id===lh.classId);
   const newIds = [];
@@ -9027,6 +9167,7 @@ function lichAutoGenerateNhomWeek(lh, weekIndex){
     tietHocList.push(t);
     newIds.push(t.id);
   });
+  if(opts.batch) return newIds; // để nơi gọi (batch) tự gộp và lưu 1 lần
   // chỉ lưu khi thực sự vừa sinh buổi học mới (đã có "already" chặn trùng ở trên).
   // Chạy nền (không chặn UI vì hàm này được gọi lặp lại cho từng tuần), nhưng vẫn
   // rollback nếu lưu thất bại để tránh buổi học "ma" chỉ tồn tại ở phía client.
@@ -9038,9 +9179,26 @@ function lichAutoGenerateNhomWeek(lh, weekIndex){
   });
 }
 /* sinh sẵn buổi học cho TOÀN BỘ các tuần của 1 lớp khoá học ngay khi lịch cố định được lưu/tải,
-   để học viên & giáo viên thấy đủ lịch từ tuần 1 đến tuần cuối ngay lập tức, không phải đợi admin mở từng tuần ra xem */
+   để học viên & giáo viên thấy đủ lịch từ tuần 1 đến tuần cuối ngay lập tức, không phải đợi admin mở từng tuần ra xem.
+   [FIX-NHIỀU-LẦN-LƯU] Hàm này được gọi lại mỗi khi vào tab Lịch học (lichEnterPane) hoặc mỗi khi
+   render danh sách tuần (lichPopulateWeekSelect...). Trước đây mỗi tuần chưa sinh gọi appSave()
+   riêng -> lần đầu mở 1 lớp nhiều tuần có thể bắn hàng chục lệnh lưu gần như đồng thời lên Edge
+   Function. Giờ dùng chế độ batch: sinh buổi học cho tất cả các tuần còn thiếu trong bộ nhớ trước,
+   rồi CHỈ GỌI appSave 1 LẦN DUY NHẤT cho toàn bộ. Các tuần đã có buổi học (already=true) vẫn được
+   bỏ qua ngay từ đầu như cũ nên không tốn gì thêm khi gọi lại hàm này nhiều lần. */
 function lichEnsureAllNhomWeeksGenerated(lh){
-  for(let i=0;i<lh.weekNumber;i++) lichAutoGenerateNhomWeek(lh, i);
+  let allNewIds = [];
+  for(let i=0;i<lh.weekNumber;i++){
+    const ids = lichAutoGenerateNhomWeek(lh, i, {batch:true});
+    if(ids && ids.length) allNewIds = allNewIds.concat(ids);
+  }
+  if(!allNewIds.length) return; // không có gì mới -> không lưu, đúng yêu cầu "chỉ tạo khi cần"
+  appSave('tietHocList', {silent:true}).then(res=>{
+    if(res && res.ok===false){
+      tietHocList = tietHocList.filter(t=>!allNewIds.includes(t.id));
+      console.error('[Lịch học] Tự sinh buổi học (hàng loạt) KHÔNG thành công:', res.message);
+    }
+  });
 }
 
 /* ----- vẽ lịch tuần dạng cột ngày ----- */
@@ -9279,16 +9437,25 @@ function lichOpenEditWeekFixed(){
   document.getElementById('lewInput').value = weekOverrides[key] || lh.fixedSchedule || '';
   openModal('lichEditWeekModalBg');
 }
-function lichSaveEditWeekFixed(){
+async function lichSaveEditWeekFixed(){
   const text = document.getElementById('lewInput').value.trim();
   if(!parseFixedSchedule(text)){ showToast('⚠️ Định dạng lịch không hợp lệ (tối đa 7 buổi/tuần, đúng định dạng thứ;mã;giờ)'); return; }
   const ctx = lichCurrentCtx;
   const lh = lichHocList.find(l=>l.id===ctx.lhId);
   const key = `${lh.id}_${ctx.wIdx}`;
+  // [FIX-SỬA-LỊCH-TUẦN-KHÔNG-LƯU-CHẮC] Trước đây appSave('weekOverrides') "bắn rồi quên".
+  // (appSave('tietHocList') phía sau bị bỏ vì lichAutoGenerateNhomWeek() bên dưới đã tự lưu
+  // + tự rollback riêng cho tietHocList rồi, gọi lại ở đây chỉ dư thừa/có thể ghi đè race.)
+  const prevOverride = weekOverrides[key];
   weekOverrides[key] = text;
   tietHocList = tietHocList.filter(t=>!(t.lichHocId===lh.id && t.weekIndex===ctx.wIdx));
   lichAutoGenerateNhomWeek(lh, ctx.wIdx);
-  appSave('weekOverrides'); appSave('tietHocList');
+  const res = await appSave('weekOverrides');
+  if(res && res.ok===false){
+    if(prevOverride===undefined) delete weekOverrides[key]; else weekOverrides[key] = prevOverride;
+    showToast('❌ Cập nhật lịch tuần KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('lichEditWeekModalBg');
   lichRenderCalendarDays('nhom');
   showToast('✅ Đã cập nhật lịch tuần này (không ảnh hưởng các tuần khác)');
@@ -9381,10 +9548,19 @@ function lichOpenDeleteLesson(id){
   lichPendingDeleteLessonId = id;
   openModal('lichLessonDeleteModalBg');
 }
-function confirmDeleteLesson(){
+async function confirmDeleteLesson(){
   const t = tietHocList.find(x=>x.id===lichPendingDeleteLessonId);
-  if(t) t.status='deleted';
-  appSave('tietHocList');
+  if(!t) return;
+  // [FIX-XOÁ-BUỔI-HỌC-KHÔNG-LƯU-CHẮC] Trước đây appSave('tietHocList') "bắn rồi quên" — nếu
+  // lưu thất bại, buổi học hiện là đã xoá trên máy này nhưng thực ra vẫn còn trên server.
+  const prevStatus = t.status;
+  t.status='deleted';
+  const res = await appSave('tietHocList');
+  if(res && res.ok===false){
+    t.status = prevStatus;
+    showToast('❌ Xoá buổi học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('lichLessonDeleteModalBg');
   if(lichCurrentCtx) lichRenderCalendarDays(lichCurrentCtx.type);
   showToast('🗑️ Đã xoá buổi học');
@@ -10003,6 +10179,27 @@ function lichGvRenderCalendar(){
 let attendanceCodes = [];        // {id, tietHocId, code, generatedAt, expiresAt}
 appRegisterState('attendanceCodes', ()=>attendanceCodes, v=>{ attendanceCodes = Array.isArray(v)?v:[]; });
 appRestore('attendanceCodes');
+// [FIX-HIỆU-NĂNG-attendanceCodes-PHÌNH-TO] Mảng này chỉ dùng để xác thực mã điểm danh còn
+// hiệu lực (xem các chỗ .find() bên dưới) — mã đã đóng (_closed) không còn được dùng cho bất
+// kỳ tính năng nào, nhưng trước đây KHÔNG BAO GIỜ bị xoá khỏi mảng. Vì attendanceGlobalTick
+// duyệt qua toàn bộ mảng này mỗi giây suốt vòng đời trang, mảng càng phình to theo thời gian
+// (mỗi buổi học sinh ra 1 mã) thì chi phí duyệt mỗi giây càng tăng dần. Định kỳ dọn bớt các
+// mã đã đóng quá lâu (giữ 7 ngày là đủ cho nhu cầu tra cứu ngắn hạn) để tránh phình vô hạn.
+const ATTENDANCE_CODE_RETENTION_MS = 7*86400000;
+async function attendanceCodesCleanupOld(){
+  const cutoff = Date.now() - ATTENDANCE_CODE_RETENTION_MS;
+  const stale = attendanceCodes.filter(c=>c._closed && new Date(c.expiresAt).getTime() < cutoff);
+  if(!stale.length) return;
+  const prevCodes = attendanceCodes;
+  attendanceCodes = attendanceCodes.filter(c=>!(c._closed && new Date(c.expiresAt).getTime() < cutoff));
+  const res = await appSave('attendanceCodes', {silent:true});
+  if(res && res.ok===false){
+    attendanceCodes = prevCodes;
+    console.error('[Điểm danh] Tự động dọn mã điểm danh cũ KHÔNG thành công:', res.message);
+  }
+}
+attendanceCodesCleanupOld();
+setInterval(attendanceCodesCleanupOld, 60*60*1000); // quét mỗi giờ, đủ để giữ mảng gọn mà không tốn nhiều lệnh gọi mạng
 let _attHandledCodeIds = new Set(); // mã đã được học viên hiện tại xử lý (điểm danh/thoát) trong phiên này
 let _attBannerLessonId = null, _attBannerCodeId = null;
 
@@ -10052,7 +10249,7 @@ function ddGvLessonRowHtml(t, teacher){
     <div class="att-btns" style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
       ${selfBtnHtml}
       ${active
-        ? `<span class="badge" style="color:#1f8a54;">Mã: <b>${qdEsc(active.code)}</b> · <span id="ddCountdown-${t.id}">${formatCountdown(new Date(active.expiresAt)-new Date())}</span></span>`
+        ? `<span class="badge" style="color:#1f8a54;">Mã: <b>${qdEsc(active.code)}</b> · <span id="ddCountdown-${t.id}">${formatCountdownShort(new Date(active.expiresAt)-new Date())}</span></span>`
         : `<button onclick="ddGvGenerateCode('${t.id}')">📶 Điểm danh (tạo mã)</button>`}
     </div>
   </div>`;
@@ -10089,7 +10286,7 @@ async function ddGvGenerateCode(lessonId){
   ddGvRenderCalendar();
   showToast('📶 Đã tạo mã điểm danh — trong 15 phút đầu tính "Có mặt", sau đó đến phút 30 tính "Học trễ", quá 30 phút tính "Vắng học"');
 }
-function formatCountdown(ms){ if(ms<0) ms=0; const s=Math.floor(ms/1000); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }
+function formatCountdownShort(ms){ if(ms<0) ms=0; const s=Math.floor(ms/1000); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }
 
 /* tự động đánh vắng cho học viên chưa điểm danh khi mã hết hạn */
 async function autoMarkAbsentIfNeeded(c){
@@ -10137,7 +10334,7 @@ function updateBannerCountdown(){
   const el = document.getElementById('attBannerCountdown');
   if(!c || !el) return;
   const ms = new Date(c.expiresAt) - new Date();
-  el.textContent = formatCountdown(ms);
+  el.textContent = formatCountdownShort(ms);
   const noteEl = document.getElementById('attBannerPhaseNote');
   if(noteEl){
     const elapsedMin = (new Date() - new Date(c.generatedAt)) / 60000;
@@ -10269,7 +10466,7 @@ setInterval(function attendanceGlobalTick(){
   document.querySelectorAll('[id^="ddCountdown-"]').forEach(el=>{
     const lessonId = el.id.replace('ddCountdown-','');
     const c = attendanceCodes.find(x=>x.tietHocId===lessonId && new Date(x.expiresAt)>now);
-    if(c) el.textContent = formatCountdown(new Date(c.expiresAt)-now);
+    if(c) el.textContent = formatCountdownShort(new Date(c.expiresAt)-now);
     else if(document.getElementById('pane-diemdanh')?.classList.contains('active')) ddGvRenderCalendar();
   });
   if(currentRole==='student') studentAttendanceCheck();
@@ -10962,15 +11159,27 @@ async function qdPurgeHistory(){
     const ids = new Set(toRemove.map(d=>d.id));
     const removed = decisions.filter(d=>ids.has(d.id));
     decisions = decisions.filter(d=>!ids.has(d.id));
-    const res = await appSave('decisions', {silent:true});
-    if(res && res.ok===false){
+    // [FIX-ROLLBACK] Bọc try-catch: nếu appSave ném lỗi bất ngờ (thay vì trả {ok:false}),
+    // vẫn phải khôi phục lại decisions trong bộ nhớ để tránh mất đồng bộ với server.
+    try{
+      const res = await appSave('decisions', {silent:true});
+      if(res && res.ok===false){
+        decisions = decisions.concat(removed);
+        console.error('[Quyết định] Dọn lịch sử tự động KHÔNG thành công:', res.message);
+        return false; // báo cho nơi gọi biết là đã rollback, cần vẽ lại UI đúng dữ liệu
+      }
+    }catch(e){
       decisions = decisions.concat(removed);
-      console.error('[Quyết định] Dọn lịch sử tự động KHÔNG thành công:', res.message);
+      console.error('[Quyết định] Dọn lịch sử tự động lỗi:', e);
+      return false;
     }
   }
+  return true;
 }
-function openQdHistory(){
-  qdPurgeHistory();
+async function openQdHistory(){
+  // [FIX] await để nếu purge bị rollback (lưu thất bại), bảng lịch sử vẽ ra vẫn đúng với
+  // dữ liệu thật (đã khôi phục), thay vì vẽ theo mảng decisions đã bị xoá tạm trong bộ nhớ.
+  await qdPurgeHistory();
   ['student','teacher'].forEach(role=>{
     const tbl=document.getElementById(role==='student'?'qdHistoryTblHv':'qdHistoryTblGv');
     const list = decisions.filter(d=>(d.status==='approved'||d.status==='rejected') && d.targetType===role).sort((a,b)=>b.decidedAt-a.decidedAt);
@@ -11108,12 +11317,19 @@ function qdViewForm(id){
   document.getElementById('qdFormViewBody').innerHTML = body;
   openModal('qdFormViewModalBg');
 }
-function qdDeleteForm(id){
+async function qdDeleteForm(id){
   if(!confirm('Bạn có chắc muốn xoá đơn này không? Đơn sẽ được đưa vào thùng rác trong 14 ngày.')) return;
   const f=decisionForms.find(x=>x.id===id);
   if(!f) return;
+  // [FIX-XOÁ-ĐƠN-KHÔNG-LƯU-CHẮC] Trước đây appSave('decisionForms') "bắn rồi quên".
+  const prevDeleted = f.deleted, prevDeletedAt = f.deletedAt;
   f.deleted=true; f.deletedAt=Date.now();
-  appSave('decisionForms');
+  const res = await appSave('decisionForms');
+  if(res && res.ok===false){
+    f.deleted = prevDeleted; f.deletedAt = prevDeletedAt;
+    showToast('❌ Xoá đơn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('🗑️ Đã chuyển đơn vào thùng rác');
   renderQdFormsTbl(); renderQdAdmin();
 }
@@ -11130,11 +11346,17 @@ function openQdTrash(){
     : '<tr><td>Thùng rác trống</td></tr>';
   openModal('qdTrashModalBg');
 }
-function qdRestoreForm(id){
+async function qdRestoreForm(id){
   const f=decisionForms.find(x=>x.id===id);
   if(!f) return;
+  const prevDeleted = f.deleted, prevDeletedAt = f.deletedAt;
   f.deleted=false; f.deletedAt=null;
-  appSave('decisionForms');
+  const res = await appSave('decisionForms');
+  if(res && res.ok===false){
+    f.deleted = prevDeleted; f.deletedAt = prevDeletedAt;
+    showToast('❌ Khôi phục đơn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('♻️ Đã khôi phục đơn');
   openQdTrash(); renderQdFormsTbl(); renderQdAdmin();
 }
@@ -11425,9 +11647,15 @@ appRegisterState('msgGroups', ()=>msgGroups, v=>{ msgGroups = Array.isArray(v)?v
 appRegisterState('msgTeacherQuota', ()=>msgTeacherQuota, v=>{ msgTeacherQuota = v && typeof v==='object' ? v : {}; });
 appRegisterState('msgReadState', ()=>msgReadState, v=>{ msgReadState = v && typeof v==='object' ? v : {}; }, ()=>{ msgRenderGroupList(); });
 appRestore('msgTeacherQuota'); appRestore('msgReadState');
-function msgPersistLocal(){
-  appSave('msgMessages');
-  appSave('msgGroups');
+// [FIX-TIN-NHẮN-KHÔNG-LƯU-CHẮC] Đây là đường lưu DUY NHẤT cho toàn bộ tin nhắn/nhóm chat
+// (msgBroadcast() gọi hàm này sau mỗi lần gửi/sửa/xoá tin nhắn). Trước đây appSave() "bắn
+// rồi quên" hoàn toàn im lặng — nếu mạng lỗi, tin nhắn hiện đã "gửi" trên máy người dùng
+// nhưng thực ra KHÔNG BAO GIỜ tới được server, mất tin nhắn mà không ai biết. Nay trả về
+// Promise kết quả để msgBroadcast() có thể cảnh báo người dùng khi lưu thất bại.
+async function msgPersistLocal(){
+  const [resMsg, resGroups] = await Promise.all([appSave('msgMessages'), appSave('msgGroups')]);
+  const failed = (resMsg && resMsg.ok===false) ? resMsg : (resGroups && resGroups.ok===false ? resGroups : null);
+  return failed || {ok:true};
 }
 function msgRestoreLocal(){
   appRestore('msgMessages');
@@ -11465,7 +11693,9 @@ if(msgBus){
     if(d.group) msgMergeGroup(d.group);
     if(d.message) msgMergeMessage(d.message);
     if(d.kind==='newMessage' || d.kind==='update'){
-      msgPersistLocal(); // đồng bộ lại localStorage của tab này theo dữ liệu vừa gộp
+      // đồng bộ lại theo dữ liệu vừa gộp từ tab khác; dữ liệu đã có ở tab kia rồi nên chỉ cần
+      // log khi lưu lại ở tab này thất bại, không cần cảnh báo người dùng thêm lần nữa.
+      msgPersistLocal().then(res=>{ if(res && res.ok===false) console.warn('[Tin nhắn] Đồng bộ lại giữa các tab KHÔNG thành công:', res.message); });
       if(msgCurrentGroupId) msgRenderMessages();
       msgRenderGroupList();
       if(typeof msgRenderPinBar==='function') msgRenderPinBar();
@@ -11760,9 +11990,19 @@ function msgFmtDay(ts){
   const pad = n=>String(n).padStart(2,'0');
   return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
 }
-function msgBroadcast(kind, payload){
-  // lưu lại trạng thái mới nhất của tab hiện tại vào localStorage (trừ sự kiện gõ phím "typing")
-  if(kind!=='typing' && typeof msgPersistLocal==='function') msgPersistLocal();
+async function msgBroadcast(kind, payload){
+  // lưu lại trạng thái mới nhất của tab hiện tại vào Supabase (trừ sự kiện gõ phím "typing")
+  if(kind!=='typing' && typeof msgPersistLocal==='function'){
+    // Không rollback UI ở đây (tin nhắn đã hiển thị lạc quan trước khi gọi hàm này, và việc
+    // gỡ tin nhắn/nhóm ra khỏi khung chat theo từng loại thao tác là rủi ro cao nếu tự động
+    // hoá vội) — nhưng ít nhất KHÔNG còn im lặng: báo cho người dùng biết để họ thử gửi lại
+    // hoặc kiểm tra mạng, tránh tưởng đã gửi mà thực ra tin nhắn chưa hề tới server.
+    const res = await msgPersistLocal();
+    if(res && res.ok===false){
+      console.error('[Tin nhắn] Lưu KHÔNG thành công:', res.message);
+      showToast('⚠️ Tin nhắn có thể CHƯA được lưu (lỗi mạng) — vui lòng kiểm tra và gửi lại nếu cần.');
+    }
+  }
   if(msgBus){ try{ msgBus.postMessage(Object.assign({kind}, payload||{})); }catch(e){} }
 }
 
@@ -11919,7 +12159,9 @@ function msgOpenGroup(groupId){
   msgCurrentGroupId = groupId;
   const user = msgCurrentUser();
   msgReadState[`${user.id}:${groupId}`] = Date.now();
-  appSave('msgReadState');
+  // Chỉ ảnh hưởng huy hiệu "chưa đọc" (tự khôi phục ở lần mở tiếp theo) nên không cần chặn
+  // UI hay rollback, nhưng vẫn ghi log thay vì im lặng hoàn toàn khi lưu thất bại.
+  appSave('msgReadState').catch(e=>console.warn('[Tin nhắn] Lưu trạng thái đã đọc thất bại:', e));
   const wrap = document.querySelector('.msg-wrap');
   if(wrap) wrap.classList.add('chat-open');
   document.getElementById('msgChatView').classList.add('active');
@@ -12284,7 +12526,20 @@ async function msgConfirmSend(){
   if(sendBtn){ sendBtn.disabled = true; sendBtn.textContent = 'Đang tải lên…'; }
   let uploaded;
   try{
-    uploaded = await Promise.all(items.map(it=>sbUploadFile(it.file, 'chat')));
+    // [FIX-FILE-RÁC] Trước đây dùng Promise.all: nếu 1 file lỗi giữa chừng, Promise.all reject
+    // ngay lập tức và MẤT LUÔN tham chiếu tới các file đã upload thành công trước đó -> chúng
+    // vẫn nằm trên Supabase Storage vĩnh viễn dù tin nhắn không được gửi (file mồ côi).
+    // Giờ dùng allSettled để biết chính xác file nào đã lên thành công, và nếu có bất kỳ file
+    // nào lỗi thì XOÁ NGAY các file đã lên thành công đó trước khi báo lỗi, coi cả lượt gửi là
+    // "tất cả hoặc không gì cả" (all-or-nothing) để Storage không bị rác.
+    const settled = await Promise.allSettled(items.map(it=>sbUploadFile(it.file, 'chat')));
+    const firstFail = settled.find(r=>r.status==='rejected');
+    if(firstFail){
+      const okOnes = settled.filter(r=>r.status==='fulfilled').map(r=>r.value);
+      await Promise.all(okOnes.map(u=>sbDeleteFileByUrl(u.url)));
+      throw firstFail.reason;
+    }
+    uploaded = settled.map(r=>r.value);
   }catch(e){
     if(sendBtn){ sendBtn.disabled = false; sendBtn.textContent = 'Gửi'; }
     showToast('❌ Gửi thất bại: không tải được lên Supabase Storage. Kiểm tra mạng và thử lại.');
@@ -12297,7 +12552,9 @@ async function msgConfirmSend(){
     if(user.role==='teacher'){
       const q = msgGetQuota(user.id);
       q.images += items.length;
-      appSave('msgTeacherQuota');
+      // Hạn mức chỉ mang tính giới hạn tham khảo hàng ngày; nếu lưu thất bại thì tự khôi
+      // phục đúng vào lần tính lại tiếp theo trong ngày, nên chỉ cần log thay vì chặn gửi.
+      appSave('msgTeacherQuota').catch(e=>console.warn('[Tin nhắn] Lưu hạn mức ảnh thất bại:', e));
     }
     newMsg = {
       id:'msg'+Date.now()+Math.random().toString(16).slice(2), groupId:g.id,
@@ -12311,7 +12568,7 @@ async function msgConfirmSend(){
     if(user.role==='teacher'){
       const q = msgGetQuota(user.id);
       q.pdfs += 1;
-      appSave('msgTeacherQuota');
+      appSave('msgTeacherQuota').catch(e=>console.warn('[Tin nhắn] Lưu hạn mức PDF thất bại:', e));
     }
     newMsg = {
       id:'msg'+Date.now()+Math.random().toString(16).slice(2), groupId:g.id,
@@ -13893,11 +14150,46 @@ async function xtPortalRenderResult(code){
   }
 
   let cert = null;
+  // [FIX-BÁO-LỖI-CHUNG-CHUNG] Trước đây nếu invoke() lỗi (mạng, server 500...) thì bị catch
+  // nuốt mất, data=null -> rơi thẳng xuống nhánh "Không tìm thấy chứng chỉ" giống hệt trường
+  // hợp mã sai, khiến người dùng không phân biệt được là lỗi hệ thống hay do gõ sai mã.
+  // Giờ tách riêng: có `error` (hoặc data.error) từ Edge Function => báo lỗi hệ thống;
+  // chỉ khi Edge Function trả lời rõ ràng "found:false" mới coi là thật sự không tìm thấy.
+  let systemError = null;
   try{
-    const {data} = await sb.functions.invoke('verify-certificate', { body: { code } });
-    if(data && data.found) cert = data;
-  }catch(e){ console.error('[Supabase] Tra cứu chứng chỉ thất bại:', e); }
+    const {data, error} = await sb.functions.invoke('verify-certificate', { body: { code } });
+    if(error){
+      let realMessage = error.message;
+      try{
+        if(error.context && typeof error.context.json === 'function'){
+          const body = await error.context.clone().json();
+          if(body && body.error) realMessage = body.error;
+        }
+      }catch(e2){ /* body không phải JSON hợp lệ -> giữ nguyên error.message */ }
+      systemError = realMessage;
+      console.error('[Supabase] Tra cứu chứng chỉ thất bại:', realMessage);
+    } else if(data && data.error){
+      systemError = data.error;
+      console.error('[Supabase] Tra cứu chứng chỉ bị từ chối:', data.error);
+    } else if(data && data.found){
+      cert = data;
+    }
+  }catch(e){
+    systemError = (e && e.message) || String(e);
+    console.error('[Supabase] Tra cứu chứng chỉ lỗi mạng:', e);
+  }
   xtPortalCurrentCert = cert;
+
+  if(systemError){
+    wrap.innerHTML = `
+      <div class="xt-not-found" style="margin-top:0;">
+        <div class="ic">⚠️</div><b>Không thể tra cứu lúc này</b>
+        Hệ thống đang gặp sự cố (${qdEsc(systemError)}). Vui lòng thử lại sau, đây KHÔNG có nghĩa là mã chứng chỉ sai.
+      </div>
+      <button class="btn btn-ghost" style="width:100%;margin-top:14px;" onclick="xtPortalReset()">QUAY LẠI</button>
+    `;
+    return;
+  }
 
   if(!cert){
     wrap.innerHTML = `
@@ -14071,10 +14363,8 @@ function btRenderLoginMaintenanceUI(){
   // hiển thị màn hình "Hệ thống đang bảo trì" (showLoginMaintenanceScreen) thay vì cho đăng nhập.
   const gab = document.querySelector('.google-auth-box');
   const divider = document.querySelector('.login-divider');
-  const notice = document.getElementById('btLoginMaintNotice');
   if(gab) gab.style.display='';
   if(divider) divider.style.display='';
-  if(notice) notice.remove();
 }
 
 /* ---------- Bảo trì từng phần ---------- */

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TIYI Chinese — Kiểm tra hệ thống</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+:root{
+  --jade:#14663d; --jade-2:#1f8a54; --mint:#eef8f1; --ink:#152318; --ink-soft:#5a6f61;
+  --paper:#ffffff; --line:#dbe9e0; --gold:#b8901f;
+  --ok:#1f8a54; --ok-bg:#eaf7ef;
+  --warn:#a6720c; --warn-bg:#fdf3df;
+  --fail:#b6303b; --fail-bg:#fdeaec;
+  --pending:#7c8a80; --pending-bg:#f2f5f3;
+  --font-display:"Noto Serif SC",serif; --font-body:"Manrope",sans-serif; --font-mono:"JetBrains Mono",monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--mint);color:var(--ink);font-family:var(--font-body);padding:24px 16px 60px;}
+.wrap{max-width:760px;margin:0 auto;}
+header{margin-bottom:22px;}
+h1{font-family:var(--font-display);font-size:1.55rem;margin:0 0 6px;color:var(--jade);letter-spacing:.2px;}
+.sub{color:var(--ink-soft);font-size:.92rem;line-height:1.5;margin:0;}
+.config-box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:16px 0;font-family:var(--font-mono);font-size:.78rem;color:var(--ink-soft);}
+.config-box b{color:var(--ink);}
+.config-box input{width:100%;background:transparent;border:none;font-family:var(--font-mono);font-size:.78rem;color:var(--ink);outline:none;padding:2px 0;}
+.summary{display:flex;gap:10px;margin:18px 0;flex-wrap:wrap;}
+.pill{flex:1;min-width:90px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:center;}
+.pill .n{font-size:1.4rem;font-weight:800;font-family:var(--font-mono);}
+.pill .l{font-size:.72rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;}
+.pill.ok .n{color:var(--ok);} .pill.warn .n{color:var(--warn);} .pill.fail .n{color:var(--fail);}
+button#runBtn{background:var(--jade);color:#fff;border:none;border-radius:10px;padding:12px 18px;font-size:.95rem;font-weight:700;cursor:pointer;width:100%;margin-bottom:18px;transition:background .2s;}
+button#runBtn:hover{background:var(--jade-2);}
+button#runBtn:disabled{opacity:.6;cursor:wait;}
+.group-title{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin:22px 0 8px;font-weight:700;}
+.check{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden;}
+.check-row{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;cursor:default;}
+.icon{flex-shrink:0;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;margin-top:1px;}
+.icon.pending{background:var(--pending-bg);color:var(--pending);}
+.icon.ok{background:var(--ok-bg);color:var(--ok);}
+.icon.warn{background:var(--warn-bg);color:var(--warn);}
+.icon.fail{background:var(--fail-bg);color:var(--fail);}
+.check-body{flex:1;min-width:0;}
+.check-name{font-weight:700;font-size:.92rem;}
+.check-desc{font-size:.8rem;color:var(--ink-soft);margin-top:2px;}
+.check-detail{font-family:var(--font-mono);font-size:.74rem;background:var(--mint);border-top:1px solid var(--line);padding:9px 14px;color:var(--ink);white-space:pre-wrap;word-break:break-word;display:none;}
+.check-detail.show{display:block;}
+footer{margin-top:30px;font-size:.76rem;color:var(--ink-soft);line-height:1.6;text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🩺 Kiểm tra hệ thống — TIYI Chinese</h1>
+    <p class="sub">Trang này chạy các bài test thật (gọi tới Supabase, Edge Function, CDN, và các API trình duyệt) từ đúng nơi bạn deploy nó — nếu deploy chung domain với app thật sẽ cho kết quả sát nhất. Không cần đăng nhập.</p>
+  </header>
+
+  <div class="config-box">
+    <div><b>SUPABASE_URL</b></div>
+    <input id="cfgUrl" value="https://hzcycpyxgooateaiyfii.supabase.co">
+    <div style="margin-top:8px;"><b>SUPABASE_ANON_KEY</b></div>
+    <input id="cfgKey" value="sb_publishable_Spw_UuZMDOuP94tH5OAA1Q_CwCz00DQ">
+  </div>
+
+  <button id="runBtn" onclick="runAll()">▶ Chạy toàn bộ kiểm tra</button>
+
+  <div class="summary" id="summary" style="display:none;">
+    <div class="pill ok"><div class="n" id="cntOk">0</div><div class="l">Ổn</div></div>
+    <div class="pill warn"><div class="n" id="cntWarn">0</div><div class="l">Cảnh báo</div></div>
+    <div class="pill fail"><div class="n" id="cntFail">0</div><div class="l">Lỗi</div></div>
+  </div>
+
+  <div id="results"></div>
+
+  <footer>
+    Nhấp vào một dòng kết quả để xem chi tiết lỗi (nếu có).<br>
+    Kết quả ❌/⚠️ không có nghĩa app hỏng hoàn toàn — hãy đọc phần chi tiết để biết chính xác nguyên nhân (mạng, CORS, CDN, RLS, hay Edge Function chưa deploy).
+  </footer>
+</div>
+
+<script>
+const results = {};
+let order = [];
+
+function defineCheck(id, group, name, desc, fn){
+  order.push({id, group, name, desc, fn});
+}
+
+function renderSkeleton(){
+  const groups = {};
+  order.forEach(c => { (groups[c.group] = groups[c.group]||[]).push(c); });
+  let html = '';
+  Object.keys(groups).forEach(g=>{
+    html += `<div class="group-title">${g}</div>`;
+    groups[g].forEach(c=>{
+      html += `
+      <div class="check" id="wrap-${c.id}">
+        <div class="check-row" onclick="toggleDetail('${c.id}')">
+          <div class="icon pending" id="icon-${c.id}">…</div>
+          <div class="check-body">
+            <div class="check-name">${c.name}</div>
+            <div class="check-desc">${c.desc}</div>
+          </div>
+        </div>
+        <div class="check-detail" id="detail-${c.id}"></div>
+      </div>`;
+    });
+  });
+  document.getElementById('results').innerHTML = html;
+}
+
+function toggleDetail(id){
+  document.getElementById('detail-'+id).classList.toggle('show');
+}
+
+function setResult(id, status, detail){
+  // status: 'ok' | 'warn' | 'fail'
+  results[id] = status;
+  const iconMap = {ok:'✔️', warn:'⚠️', fail:'❌'};
+  const el = document.getElementById('icon-'+id);
+  el.className = 'icon ' + status;
+  el.textContent = iconMap[status];
+  const d = document.getElementById('detail-'+id);
+  d.textContent = detail || '(không có chi tiết bổ sung)';
+  if(status !== 'ok') d.classList.add('show');
+}
+
+function updateSummary(){
+  let ok=0,warn=0,fail=0;
+  Object.values(results).forEach(s=>{ if(s==='ok')ok++; else if(s==='warn')warn++; else if(s==='fail')fail++; });
+  document.getElementById('cntOk').textContent = ok;
+  document.getElementById('cntWarn').textContent = warn;
+  document.getElementById('cntFail').textContent = fail;
+  document.getElementById('summary').style.display = 'flex';
+}
+
+async function runAll(){
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = '⏳ Đang chạy...';
+  for(const c of order){
+    try{
+      const r = await c.fn();
+      setResult(c.id, r.status, r.detail);
+    }catch(err){
+      setResult(c.id, 'fail', 'Lỗi không mong đợi khi chạy test: ' + (err && err.message ? err.message : String(err)));
+    }
+    updateSummary();
+  }
+  btn.disabled = false; btn.textContent = '▶ Chạy lại toàn bộ kiểm tra';
+}
+
+// ========== NHÓM 1: THƯ VIỆN CDN ==========
+defineCheck('lib-supabase','1. Thư viện CDN','Supabase JS SDK','Thư viện kết nối Supabase có tải được không', async()=>{
+  if(typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function')
+    return {status:'fail', detail:'window.supabase không tồn tại. CDN jsdelivr có thể bị chặn bởi mạng/firewall/adblock, hoặc script bị lỗi tải.'};
+  return {status:'ok', detail:'window.supabase.createClient tồn tại.'};
+});
+
+defineCheck('lib-dompurify','1. Thư viện CDN','DOMPurify (chống XSS)','Thư viện lọc HTML dùng để chống XSS lưu trữ', async()=>{
+  if(typeof DOMPurify === 'undefined') return {status:'fail', detail:'DOMPurify không tồn tại — mọi nội dung RTE sẽ KHÔNG được lọc, nguy cơ XSS thật sự nếu app chạy thiếu thư viện này.'};
+  const test = DOMPurify.sanitize('<img src=x onerror=alert(1)><b>ok</b>');
+  if(test.includes('onerror')) return {status:'fail', detail:'DOMPurify tải được nhưng KHÔNG lọc được onerror. Kiểm tra lại phiên bản/cấu hình.'};
+  return {status:'ok', detail:'Sanitize thử: input có onerror → output "'+test+'" (đã loại bỏ thuộc tính nguy hiểm).'};
+});
+
+defineCheck('lib-xlsx','1. Thư viện CDN','SheetJS (xlsx)','Dùng để xuất/nhập file Excel', async()=>{
+  if(typeof XLSX === 'undefined') return {status:'fail', detail:'XLSX không tồn tại. Chức năng xuất/nhập Excel trong app sẽ báo lỗi.'};
+  return {status:'ok', detail:'XLSX.version = '+ (XLSX.version||'không rõ')};
+});
+
+defineCheck('lib-qrcode','1. Thư viện CDN','QRCode.js','Dùng để tạo mã QR', async()=>{
+  if(typeof QRCode === 'undefined') return {status:'fail', detail:'QRCode không tồn tại. Chức năng tạo mã QR sẽ lỗi.'};
+  return {status:'ok', detail:'window.QRCode đã sẵn sàng.'};
+});
+
+defineCheck('lib-jsqr','1. Thư viện CDN','jsQR','Dùng để quét/đọc mã QR', async()=>{
+  if(typeof jsQR === 'undefined') return {status:'fail', detail:'jsQR không tồn tại. Chức năng quét mã QR sẽ lỗi.'};
+  return {status:'ok', detail:'window.jsQR đã sẵn sàng.'};
+});
+
+// ========== NHÓM 2: KẾT NỐI SUPABASE ==========
+function getCfg(){
+  return { url: document.getElementById('cfgUrl').value.trim(), key: document.getElementById('cfgKey').value.trim() };
+}
+
+defineCheck('sb-init','2. Kết nối Supabase','Khởi tạo Supabase client','createClient(SUPABASE_URL, SUPABASE_ANON_KEY) chạy không lỗi', async()=>{
+  const {url,key} = getCfg();
+  if(typeof window.supabase === 'undefined') return {status:'fail', detail:'Bỏ qua vì SDK chưa tải (xem test SDK ở trên).'};
+  try{
+    const client = window.supabase.createClient(url, key);
+    if(!client || !client.auth) throw new Error('client trả về không hợp lệ');
+    window.__sb = client;
+    return {status:'ok', detail:'Tạo client thành công với URL: '+url};
+  }catch(err){
+    return {status:'fail', detail:'createClient lỗi: '+err.message};
+  }
+});
+
+defineCheck('sb-rest','2. Kết nối Supabase','REST API (PostgREST) phản hồi','Kiểm tra máy chủ Supabase có sống và anon key có hợp lệ', async()=>{
+  const {url,key} = getCfg();
+  try{
+    const resp = await fetch(url + '/rest/v1/', { headers: { apikey: key } });
+    if(resp.status === 0) return {status:'fail', detail:'Không nhận được phản hồi (có thể do CORS hoặc mạng chặn).'};
+    if(resp.ok || resp.status === 404) return {status:'ok', detail:'HTTP '+resp.status+' — máy chủ Supabase phản hồi bình thường.'};
+    if(resp.status === 401) return {status:'fail', detail:'HTTP 401 — anon key không hợp lệ hoặc đã bị thu hồi. Kiểm tra lại SUPABASE_ANON_KEY.'};
+    return {status:'warn', detail:'HTTP '+resp.status+' — phản hồi bất thường, xem lại cấu hình project.'};
+  }catch(err){
+    return {status:'fail', detail:'Fetch lỗi: '+err.message+'. Nguyên nhân thường gặp: sai SUPABASE_URL, project bị pause/xoá, hoặc bị chặn mạng.'};
+  }
+});
+
+defineCheck('sb-appstate','2. Kết nối Supabase','Bảng app_state — kiểm tra rò rỉ RLS','Thử SELECT ẩn danh vào bảng app_state; nếu đọc được dữ liệu nghĩa là RLS đang cho phép người lạ đọc (rủi ro bảo mật)', async()=>{
+  const {url,key} = getCfg();
+  try{
+    const resp = await fetch(url + '/rest/v1/app_state?select=name&limit=1', { headers: { apikey: key, Authorization: 'Bearer '+key } });
+    const text = await resp.text();
+    if(resp.status === 401 || resp.status === 403){
+      return {status:'ok', detail:'HTTP '+resp.status+' — RLS chặn đọc ẩn danh, đúng như kỳ vọng: '+text.slice(0,200)};
+    }
+    if(resp.ok){
+      let arr; try{ arr = JSON.parse(text); }catch(e){ arr = null; }
+      if(Array.isArray(arr) && arr.length === 0){
+        return {status:'warn', detail:'HTTP 200, mảng rỗng — không rõ RLS có chặn thật hay bảng đang trống. Nên kiểm tra thủ công trong Supabase Dashboard.'};
+      }
+      return {status:'fail', detail:'HTTP 200 và ĐỌC ĐƯỢC dữ liệu ẩn danh (không cần đăng nhập): '+text.slice(0,300)+'  → Cần kiểm tra lại RLS policy trên bảng app_state, có thể đang public đọc ngoài ý muốn.'};
+    }
+    return {status:'warn', detail:'HTTP '+resp.status+': '+text.slice(0,200)};
+  }catch(err){
+    return {status:'fail', detail:'Fetch lỗi: '+err.message};
+  }
+});
+
+defineCheck('sb-auth-settings','2. Kết nối Supabase','Auth service & Google OAuth provider','Kiểm tra dịch vụ Auth sống và Google Sign-In đã được bật trong Supabase', async()=>{
+  const {url,key} = getCfg();
+  try{
+    const resp = await fetch(url + '/auth/v1/settings', { headers: { apikey: key } });
+    if(!resp.ok) return {status:'fail', detail:'HTTP '+resp.status+' — không lấy được cấu hình Auth.'};
+    const data = await resp.json();
+    const googleOn = data && data.external && data.external.google === true;
+    if(googleOn) return {status:'ok', detail:'Auth service sống. Google OAuth provider: BẬT.'};
+    return {status:'fail', detail:'Auth service sống nhưng Google OAuth provider có vẻ CHƯA bật (external.google = '+(data&&data.external?data.external.google:'không rõ')+'). Người dùng sẽ không đăng nhập được bằng Google. Vào Supabase Dashboard > Authentication > Providers để bật.'};
+  }catch(err){
+    return {status:'fail', detail:'Fetch lỗi: '+err.message};
+  }
+});
+
+defineCheck('sb-edge-role','2. Kết nối Supabase','Edge Function get-role','Kiểm tra Edge Function phân quyền đã được deploy chưa (gọi không kèm token, kỳ vọng bị từ chối có kiểm soát chứ không phải 404/lỗi mạng)', async()=>{
+  const {url} = getCfg();
+  try{
+    const resp = await fetch(url + '/functions/v1/get-role', { method:'POST' });
+    if(resp.status === 404){
+      return {status:'fail', detail:'HTTP 404 — Edge Function "get-role" CHƯA được deploy lên Supabase. Đây là hàm quyết định vai trò admin/giáo viên/học viên, nếu thiếu thì đăng nhập sẽ không hoạt động.'};
+    }
+    if(resp.status === 401 || resp.status === 400 || resp.status === 403){
+      return {status:'ok', detail:'HTTP '+resp.status+' — Function tồn tại và từ chối đúng vì thiếu access_token hợp lệ (đúng như kỳ vọng khi test không đăng nhập).'};
+    }
+    const text = await resp.text().catch(()=> '');
+    return {status:'warn', detail:'HTTP '+resp.status+' — phản hồi không như 3 trường hợp thường gặp ở trên, nên kiểm tra thủ công: '+text.slice(0,200)};
+  }catch(err){
+    return {status:'fail', detail:'Fetch lỗi: '+err.message+' — có thể do CORS chưa cấu hình cho Edge Function, hoặc mạng chặn.'};
+  }
+});
+
+defineCheck('sb-storage-bucket','2. Kết nối Supabase','Storage bucket "app-uploads"','Kiểm tra bucket lưu file/ảnh đã được tạo và cấu hình đúng chưa', async()=>{
+  const {url,key} = getCfg();
+  try{
+    const resp = await fetch(url + '/storage/v1/bucket/app-uploads', { headers: { apikey: key, Authorization:'Bearer '+key } });
+    if(resp.status === 404){
+      return {status:'fail', detail:'HTTP 404 — bucket "app-uploads" CHƯA tồn tại. Chức năng nộp bài/upload ảnh sẽ lỗi. Cần chạy SQL tạo bucket đã ghi chú trong file gốc.'};
+    }
+    if(!resp.ok){
+      return {status:'warn', detail:'HTTP '+resp.status+' — không xác nhận được trạng thái bucket rõ ràng, kiểm tra thủ công trong Dashboard > Storage.'};
+    }
+    const data = await resp.json();
+    if(data && data.public === true) return {status:'ok', detail:'Bucket tồn tại và ở chế độ public (đúng như thiết kế trong code).'};
+    return {status:'warn', detail:'Bucket tồn tại nhưng public = '+ (data?data.public:'?') +'. Nếu code kỳ vọng bucket public để hiển thị ảnh trực tiếp, cần kiểm tra lại.'};
+  }catch(err){
+    return {status:'fail', detail:'Fetch lỗi: '+err.message};
+  }
+});
+
+// ========== NHÓM 3: TÍNH NĂNG TRÌNH DUYỆT ==========
+defineCheck('br-localstorage','3. Tính năng trình duyệt','localStorage hoạt động', 'App dùng localStorage để lưu trạng thái tạm/local-only', async()=>{
+  try{
+    localStorage.setItem('__t','1'); localStorage.removeItem('__t');
+    return {status:'ok', detail:'Đọc/ghi localStorage bình thường.'};
+  }catch(err){
+    return {status:'fail', detail:'localStorage bị chặn: '+err.message+' — thường do chế độ ẩn danh nghiêm ngặt hoặc cài đặt trình duyệt.'};
+  }
+});
+
+defineCheck('br-execcommand','3. Tính năng trình duyệt','document.execCommand (RTE)', 'Trình soạn thảo nội dung bài giảng dùng execCommand', async()=>{
+  if(typeof document.execCommand !== 'function') return {status:'fail', detail:'execCommand không tồn tại trên trình duyệt này — trình soạn thảo RTE (bài giảng/bài tập) sẽ không hoạt động.'};
+  return {status:'ok', detail:'document.execCommand tồn tại (API cũ nhưng vẫn được hỗ trợ ở hầu hết trình duyệt hiện tại).'};
+});
+
+defineCheck('br-overscroll','3. Tính năng trình duyệt','CSS overscroll-behavior', 'Dùng để chặn hiệu ứng kéo-làm-mới trên mobile', async()=>{
+  const supported = CSS.supports('overscroll-behavior-y','none');
+  if(!supported) return {status:'warn', detail:'Trình duyệt không hỗ trợ overscroll-behavior-y. App có JS fallback chặn touchmove nên vẫn hoạt động, chỉ là lớp CSS chính không có tác dụng.'};
+  return {status:'ok', detail:'Trình duyệt hỗ trợ overscroll-behavior-y.'};
+});
+
+runAll_placeholder = null;
+renderSkeleton();
+</script>
+</body>
+</html>
