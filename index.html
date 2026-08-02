@@ -3666,8 +3666,10 @@ function hideLoader(){
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
-/* ============ course data (sẽ nối Supabase sau, tạm để rỗng) ============ */
-const courses = [];
+/* ============ course data (đăng ký vào APP_STATE_REGISTRY ở phía dưới, cạnh 'adList',
+   vì APP_STATE_REGISTRY là const khai báo muộn hơn — gọi appRegisterState() ngay tại đây
+   sẽ dính lỗi TDZ giống lỗi đã từng gặp với 'adList', xem chú thích ở đó) ============ */
+let courses = [];
 /* ============ subtle tilt-on-hover for course cards ============ */
 function attachTilt(el){
   el.style.transformStyle = 'preserve-3d';
@@ -4827,6 +4829,17 @@ appRegisterState('adList', ()=>adList, v=>{ adList = Array.isArray(v)?v:[]; }, (
   if(typeof renderAdHistory==='function') renderAdHistory();
 });
 appRestore('adList');
+
+/* ============ admin: course management (Quản lý giới thiệu > Khoá học) ============ */
+// [FIX-KHOÁ-HỌC-BAY-MÀU] 'courses' trước đây là const array cục bộ, KHÔNG đăng ký vào
+// APP_STATE_REGISTRY -> không appRestore() lúc tải trang, không appSave() lên Supabase.
+// Mọi khoá học thêm/sửa/xoá chỉ tồn tại trong bộ nhớ của phiên hiện tại, mất sạch ngay
+// khi đăng xuất/đăng nhập lại hoặc mở ở thiết bị/tab khác. Đăng ký như mọi module khác.
+appRegisterState('courses', ()=>courses, v=>{ courses = Array.isArray(v)?v:[]; }, ()=>{
+  if(typeof renderCourseGrid==='function') renderCourseGrid();
+  if(typeof renderCourseHistory==='function') renderCourseHistory();
+});
+appRestore('courses');
 let editingAdId = null;
 
 function fmtExpiry(val){
@@ -5151,11 +5164,18 @@ function handleNotifSubmit(){
     draft.scheduledAt = new Date(at).getTime();
     draft.status = 'scheduled';
     notifications.unshift(draft);
-    appSave('notifications');
+    appSave('notifications', {silent:true}).then(res=>{
+      if(res && res.ok===false){
+        notifications = notifications.filter(x=>x.id!==draft.id);
+        renderNotifAdminHistory();
+        showToast('❌ Hẹn giờ đăng KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+        return;
+      }
+      scheduleNotifTimer(draft.id);
+      showToast(`⏰ Đã hẹn giờ đăng lúc ${new Date(draft.scheduledAt).toLocaleString('vi-VN')}`);
+    });
     clearNotifForm();
     renderNotifAdminHistory();
-    scheduleNotifTimer(draft.id);
-    showToast(`⏰ Đã hẹn giờ đăng lúc ${new Date(draft.scheduledAt).toLocaleString('vi-VN')}`);
   } else {
     openNotifCountdown(draft, false);
   }
@@ -5216,15 +5236,21 @@ function notifCountdownEdit(){
   showToast('✏️ Đã huỷ đếm ngược, bạn có thể chỉnh sửa lại nội dung');
 }
 
-function publishNotif(draft){
+async function publishNotif(draft){
   closeModal('notifCountdownModalBg');
+  const prevNotifications = notifications;
   notifications = notifications.filter(x=>x.id!==draft.id);
   draft.status='published';
   draft.publishedAt=Date.now();
   draft.read=false;
   notifications.unshift(draft);
   cleanupOldNotifications();
-  appSave('notifications');
+  const res = await appSave('notifications', {silent:true});
+  if(res && res.ok===false){
+    notifications = prevNotifications;
+    showToast('❌ Đăng thông báo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   clearNotifForm();
   renderNotifAdminHistory();
   renderNotifList();
@@ -6335,6 +6361,12 @@ appRegisterState('feeKeys', ()=>feeKeys, v=>{ feeKeys = Array.isArray(v)?v:[]; }
 ['tcClassColor','financeFees','financeHistory','salaryRecords','salaryHistory','bankAccounts','feeKeys'].forEach(appRestore);
 function tcRefreshActivePaneSafe(){ if(typeof tcRefreshActivePane==='function') tcRefreshActivePane(); }
 // names: 1 tên hoặc mảng tên state tài chính vừa thay đổi. Không truyền gì -> mặc định lưu học phí (tương thích code cũ).
+// [GHI CHÚ] Sau đợt vá "appSave bắn rồi quên" trong module Tài chính, các hàm ghi dữ liệu
+// (tcSaveFee, tcDecideFee, tcCheckSalarySettlements, tcSaveSalary, tcAddBank/tcToggleBank/
+// tcDeleteBank, tcSaveKey, tcHvApplyKey, tcHvConfirmPay) đều tự gọi appSave() trực tiếp và
+// CHỜ kết quả để có thể hoàn tác khi lưu thất bại — không còn nơi nào gọi tcBroadcast()
+// nữa. Giữ lại hàm này (không xoá) đề phòng code cũ/khác còn tham chiếu tới, nhưng KHÔNG
+// nên dùng lại kiểu "bắn rồi quên" này cho các thay đổi dữ liệu tiền bạc.
 function tcBroadcast(names){
   (Array.isArray(names) ? names : names ? [names] : ['financeFees','financeHistory']).forEach(appSave);
 }
@@ -6477,23 +6509,46 @@ function tcOpenFeeModal(studentId, classId){
   } else { hint.style.display='none'; hint.textContent=''; }
   openModal('tcFeeModalBg');
 }
-function tcSaveFee(){
+// [FIX-HỌC-PHÍ-KHÔNG-LƯU-THẬT] Trước đây hàm này chỉ sửa thẳng biến financeFees trong bộ
+// nhớ rồi đóng modal ngay — KHÔNG hề gọi appSave(), chỉ dựa vào tcBroadcast() ở nơi khác
+// (vốn cũng "bắn rồi quên"). Khoản học phí admin vừa nhập chỉ tồn tại trên đúng tab đó:
+// F5 là mất, thiết bị khác không hề thấy. Giờ chờ lưu thật lên Supabase thành công mới
+// đóng modal; nếu thất bại thì hoàn tác đúng thay đổi vừa làm (khôi phục giá trị cũ, hoặc
+// gỡ khoản phí vừa thêm) và báo lỗi thật, giữ modal mở để người dùng thử lại.
+async function tcSaveFee(){
   const content = document.getElementById('tcFeeContent').value.trim();
   const amount = tcMoneyVal(document.getElementById('tcFeeAmount'));
   if(!content){ showToast('⚠️ Vui lòng nhập nội dung học phí'); return; }
   if(!amount){ showToast('⚠️ Vui lòng nhập số tiền'); return; }
   let fee = financeFees.find(f=>f.studentId===tcCurrentFeeStudentId);
+  let isNew = false, prev = null;
   if(fee){
+    prev = {content:fee.content, amount:fee.amount, classId:fee.classId};
     fee.content = content; fee.amount = amount; fee.classId = tcCurrentFeeClassId;
   } else {
+    isNew = true;
     fee = {id:'fee'+Date.now()+Math.random().toString(36).slice(2,7), studentId:tcCurrentFeeStudentId, classId:tcCurrentFeeClassId, content, amount, status:'unpaid', createdAt:Date.now(), submittedAt:null};
     financeFees.push(fee);
   }
+  tcRenderClassStudentsTbl(tcCurrentFeeClassId);
+  const res = await appSave('financeFees', {silent:true});
+  if(res && res.ok===false){
+    if(isNew){ financeFees = financeFees.filter(f=>f.id!==fee.id); }
+    else { fee.content = prev.content; fee.amount = prev.amount; fee.classId = prev.classId; }
+    tcRenderClassStudentsTbl(tcCurrentFeeClassId);
+    showToast('❌ Lưu học phí KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('tcFeeModalBg');
   showToast('✅ Đã lưu học phí');
-  tcRenderClassStudentsTbl(tcCurrentFeeClassId);
-  if(typeof tcBroadcast==='function') tcBroadcast();
 }
+// [FIX-DUYỆT/TỪ-CHỐI-HỌC-PHÍ-KHÔNG-LƯU-CHẮC] Trước đây chỉ appSave() "bắn rồi quên" qua
+// tcBroadcast() — nếu lưu thất bại (mất mạng, hết phiên đăng nhập...), UI đã báo "đã
+// duyệt"/"đã từ chối" trong khi Supabase chưa hề ghi nhận -> tiền học phí bị duyệt "ảo",
+// F5 hoặc thiết bị khác lại thấy khoản phí y như cũ (bất nhất dữ liệu tiền bạc). Giờ chờ
+// lưu thật CẢ 2 mảng (financeFees + financeHistory) thành công mới báo thành công; thất
+// bại thì hoàn tác đúng thay đổi (gỡ khoản lịch sử vừa thêm, khôi phục khoản phí về đúng
+// trạng thái/vị trí cũ) và báo lỗi thật.
 function tcDecideFee(feeId, decision){
   const fee = financeFees.find(f=>f.id===feeId);
   if(!fee) return;
@@ -6504,20 +6559,42 @@ function tcDecideFee(feeId, decision){
     text: `Bạn có chắc muốn ${approve?'duyệt':'từ chối'} khoản học phí "${qdEsc(fee.content)}" (${tcFmtMoney(fee.amount)}) này không?`,
     confirmLabel: approve ? 'DUYỆT' : 'TỪ CHỐI',
     danger: !approve,
-    onConfirm:()=>{
-      financeHistory.unshift({id:'fh'+Date.now()+Math.random().toString(36).slice(2,7), studentId:fee.studentId, classId:fee.classId, content:fee.content, amount:fee.amount, status:decision, submittedAt:fee.submittedAt, decidedAt:Date.now()});
+    onConfirm: async ()=>{
+      const feeIdx = financeFees.findIndex(f=>f.id===feeId);
+      const prevStatus = fee.status, prevSubmittedAt = fee.submittedAt;
+      const histEntry = {id:'fh'+Date.now()+Math.random().toString(36).slice(2,7), studentId:fee.studentId, classId:fee.classId, content:fee.content, amount:fee.amount, status:decision, submittedAt:fee.submittedAt, decidedAt:Date.now()};
+      financeHistory.unshift(histEntry);
       if(approve){
         financeFees = financeFees.filter(f=>f.id!==feeId);
       } else {
         fee.status = 'unpaid';
         fee.submittedAt = null;
       }
-      showToast(approve ? '✅ Đã duyệt học phí' : '↩️ Đã từ chối, học viên cần nộp lại');
       tcRenderClassStudentsTbl(fee.classId);
       if(typeof tcUpdateFinanceDot==='function') tcUpdateFinanceDot();
       if(typeof renderAdminTasksPane==='function') renderAdminTasksPane();
       if(typeof tcHvRender==='function') tcHvRender();
-      if(typeof tcBroadcast==='function') tcBroadcast();
+      const [resH, resF] = await Promise.all([
+        appSave('financeHistory', {silent:true}),
+        appSave('financeFees', {silent:true})
+      ]);
+      const failed = (resH && resH.ok===false) ? resH : (resF && resF.ok===false ? resF : null);
+      if(failed){
+        financeHistory = financeHistory.filter(h=>h.id!==histEntry.id);
+        if(approve){
+          if(feeIdx>=0) financeFees.splice(feeIdx, 0, fee); else financeFees.push(fee);
+        } else {
+          fee.status = prevStatus;
+          fee.submittedAt = prevSubmittedAt;
+        }
+        tcRenderClassStudentsTbl(fee.classId);
+        if(typeof tcUpdateFinanceDot==='function') tcUpdateFinanceDot();
+        if(typeof renderAdminTasksPane==='function') renderAdminTasksPane();
+        if(typeof tcHvRender==='function') tcHvRender();
+        showToast('❌ '+(approve?'Duyệt':'Từ chối')+' học phí KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+        return;
+      }
+      showToast(approve ? '✅ Đã duyệt học phí' : '↩️ Đã từ chối, học viên cần nộp lại');
     }
   });
 }
@@ -6566,18 +6643,44 @@ function tcExportStudentExcel(studentId){
 }
 
 /* ---------------- LƯƠNG ---------------- */
+// [FIX-KẾT-TOÁN-LƯƠNG-TỰ-ĐỘNG-KHÔNG-CHẮC] Đây là mutation TỰ ĐỘNG chạy mỗi khi vào các
+// màn hình liên quan (không phải người dùng bấm nút), nhưng vẫn di chuyển tiền từ "chờ
+// thanh toán" sang "lịch sử đã trả" — trước đây appSave() cũng "bắn rồi quên", nếu lưu
+// thất bại thì phiếu lương coi như đã trả trên UI dù Supabase chưa ghi nhận, rồi lần
+// kiểm tra kế tiếp sẽ không thử lại nữa (vì đã bị lọc khỏi salaryRecords trong bộ nhớ).
+// Giờ chờ lưu thật thành công CẢ 2 mảng; thất bại thì hoàn tác (đưa phiếu lương về lại
+// "chờ thanh toán", gỡ mục lịch sử vừa thêm) để lần kiểm tra kế tiếp còn thử lại được.
 function tcCheckSalarySettlements(){
   const now = Date.now();
-  const before = salaryRecords.length;
-  salaryRecords = salaryRecords.filter(r=>{
+  const moved = [];
+  const remaining = [];
+  salaryRecords.forEach(r=>{
     const settle = new Date(r.settleDate); settle.setHours(8,0,0,0);
     if(now >= settle.getTime()){
-      salaryHistory.unshift({id:'sh'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:r.teacherId, content:r.content, amount:r.amount, settleDate:r.settleDate, paidAt:settle.getTime()});
-      return false;
+      moved.push({rec:r, hist:{id:'sh'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:r.teacherId, content:r.content, amount:r.amount, settleDate:r.settleDate, paidAt:settle.getTime()}});
+    } else {
+      remaining.push(r);
     }
-    return true;
   });
-  if(salaryRecords.length !== before){ appSave('salaryRecords'); appSave('salaryHistory'); }
+  if(!moved.length) return;
+  salaryRecords = remaining;
+  moved.forEach(m=> salaryHistory.unshift(m.hist));
+  tcRenderTeacherTbl();
+  (async ()=>{
+    const [resR, resH] = await Promise.all([
+      appSave('salaryRecords', {silent:true}),
+      appSave('salaryHistory', {silent:true})
+    ]);
+    const failed = (resR && resR.ok===false) ? resR : (resH && resH.ok===false ? resH : null);
+    if(failed){
+      salaryRecords = salaryRecords.concat(moved.map(m=>m.rec));
+      const histIds = new Set(moved.map(m=>m.hist.id));
+      salaryHistory = salaryHistory.filter(h=>!histIds.has(h.id));
+      tcRenderTeacherTbl();
+      console.error('[Tài chính] Tự động kết toán lương thất bại:', failed.message);
+      showToast('⚠️ Tự động kết toán lương thất bại: '+(failed.message||'lỗi không xác định')+' — sẽ thử lại ở lần vào sau.');
+    }
+  })();
 }
 function tcRenderTeacherTbl(){
   const wrap = document.getElementById('tcTeacherTbl');
@@ -6620,18 +6723,29 @@ function tcHandleSalaryImg(ev){
   };
   reader.readAsDataURL(f);
 }
-function tcSaveSalary(){
+// [FIX-THÊM-LƯƠNG-KHÔNG-LƯU-CHẮC] Trước đây đóng modal + báo thành công ngay sau khi
+// gọi appSave() mà không chờ kết quả — nếu lưu thất bại, phiếu lương chỉ tồn tại trên
+// tab hiện tại. Giờ chờ lưu thật thành công mới đóng modal; thất bại thì gỡ phiếu vừa
+// thêm và báo lỗi thật, giữ modal mở để thử lại.
+async function tcSaveSalary(){
   const content = document.getElementById('tcSalContent').value.trim();
   const amount = tcMoneyVal(document.getElementById('tcSalAmount'));
   const settleDate = document.getElementById('tcSalDate').value;
   if(!content){ showToast('⚠️ Vui lòng nhập nội dung'); return; }
   if(!amount){ showToast('⚠️ Vui lòng nhập số tiền lương'); return; }
   if(!settleDate){ showToast('⚠️ Vui lòng chọn ngày kết toán'); return; }
-  salaryRecords.push({id:'sal'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:tcCurrentSalaryTeacherId, content, amount, settleDate, receiptImg:tcSalImgData, createdAt:Date.now()});
-  appSave('salaryRecords');
+  const rec = {id:'sal'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:tcCurrentSalaryTeacherId, content, amount, settleDate, receiptImg:tcSalImgData, createdAt:Date.now()};
+  salaryRecords.push(rec);
+  tcRenderTeacherTbl();
+  const res = await appSave('salaryRecords', {silent:true});
+  if(res && res.ok===false){
+    salaryRecords = salaryRecords.filter(r=>r.id!==rec.id);
+    tcRenderTeacherTbl();
+    showToast('❌ Thêm lương KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('tcSalaryModalBg');
   showToast('✅ Đã thêm lương, sẽ lưu vào lịch sử lúc 8:00 ngày kết toán');
-  tcRenderTeacherTbl();
 }
 function tcOpenSalaryHistory(teacherId){
   const t = adminTeachers2.find(x=>x.id===teacherId);
@@ -6677,26 +6791,44 @@ function tcRenderBankTbl(){
     </td>
   </tr>`).join('');
 }
-function tcAddBank(){
+// [FIX-TÀI-KHOẢN-NGÂN-HÀNG-KHÔNG-LƯU-CHẮC] Cả 3 hàm dưới đây (thêm/sửa, bật nhận thanh
+// toán, xoá) trước đây appSave() "bắn rồi quên" — tài khoản nhận tiền học phí của cả
+// trường mà lưu thất bại thì học viên có thể chuyển khoản vào tài khoản cũ/sai mà không
+// ai biết. Giờ chờ lưu thật thành công mới báo thành công; thất bại thì hoàn tác đúng
+// thay đổi và báo lỗi thật.
+async function tcAddBank(){
   const bank = document.getElementById('tcBankSelect').value;
   const accNumber = document.getElementById('tcBankAcc').value.trim();
   const accName = document.getElementById('tcBankName').value.trim();
   if(!accNumber){ showToast('⚠️ Vui lòng nhập số tài khoản'); return; }
   if(!accName){ showToast('⚠️ Vui lòng nhập tên tài khoản'); return; }
-  if(tcEditingBankId){
+  const isEdit = !!tcEditingBankId;
+  let rollback = ()=>{};
+  if(isEdit){
     const b = bankAccounts.find(x=>x.id===tcEditingBankId);
-    if(b){ b.bank=bank; b.accNumber=accNumber; b.accName=accName.toUpperCase(); }
+    if(b){
+      const prev = {bank:b.bank, accNumber:b.accNumber, accName:b.accName};
+      b.bank=bank; b.accNumber=accNumber; b.accName=accName.toUpperCase();
+      rollback = ()=>{ b.bank=prev.bank; b.accNumber=prev.accNumber; b.accName=prev.accName; };
+    }
     tcEditingBankId = null;
-    showToast('✅ Đã cập nhật tài khoản ngân hàng');
   } else {
     if(bankAccounts.length>=3){ showToast('⚠️ Chỉ được thêm tối đa 3 tài khoản'); return; }
-    bankAccounts.push({id:'bank'+Date.now()+Math.random().toString(36).slice(2,7), bank, accNumber, accName:accName.toUpperCase(), active: bankAccounts.length===0});
-    showToast('✅ Đã thêm tài khoản ngân hàng');
+    const nb = {id:'bank'+Date.now()+Math.random().toString(36).slice(2,7), bank, accNumber, accName:accName.toUpperCase(), active: bankAccounts.length===0};
+    bankAccounts.push(nb);
+    rollback = ()=>{ bankAccounts = bankAccounts.filter(x=>x.id!==nb.id); };
   }
   document.getElementById('tcBankAcc').value='';
   document.getElementById('tcBankName').value='';
-  appSave('bankAccounts');
   tcRenderBankTbl();
+  const res = await appSave('bankAccounts', {silent:true});
+  if(res && res.ok===false){
+    rollback();
+    tcRenderBankTbl();
+    showToast('❌ Lưu tài khoản ngân hàng KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast(isEdit ? '✅ Đã cập nhật tài khoản ngân hàng' : '✅ Đã thêm tài khoản ngân hàng');
 }
 function tcEditBank(id){
   const b = bankAccounts.find(x=>x.id===id);
@@ -6707,18 +6839,32 @@ function tcEditBank(id){
   document.getElementById('tcBankName').value = b.accName;
   tcRenderBankTbl();
 }
-function tcToggleBank(id){
+async function tcToggleBank(id){
+  const prevStates = bankAccounts.map(b=>({id:b.id, active:b.active}));
   bankAccounts.forEach(b=> b.active = (b.id===id) ? !b.active : false);
   // ensure at least logical single-active: if user turned the only-on off, that's fine (none active)
-  appSave('bankAccounts');
   tcRenderBankTbl();
+  const res = await appSave('bankAccounts', {silent:true});
+  if(res && res.ok===false){
+    prevStates.forEach(p=>{ const b = bankAccounts.find(x=>x.id===p.id); if(b) b.active = p.active; });
+    tcRenderBankTbl();
+    showToast('❌ Cập nhật tài khoản nhận thanh toán KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+  }
 }
-function tcDeleteBank(id){
+async function tcDeleteBank(id){
   if(!confirm('Bạn có chắc muốn xoá tài khoản ngân hàng này không?')) return;
+  const idx = bankAccounts.findIndex(b=>b.id===id);
+  if(idx===-1) return;
+  const removed = bankAccounts[idx];
   bankAccounts = bankAccounts.filter(b=>b.id!==id);
   if(tcEditingBankId===id) tcEditingBankId=null;
-  appSave('bankAccounts');
   tcRenderBankTbl();
+  const res = await appSave('bankAccounts', {silent:true});
+  if(res && res.ok===false){
+    bankAccounts.splice(idx, 0, removed);
+    tcRenderBankTbl();
+    showToast('❌ Xoá tài khoản ngân hàng KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+  }
 }
 
 /* ---------------- KEY (khấu trừ học phí) ---------------- */
@@ -6742,7 +6888,10 @@ function tcGenerateKey(){
   document.getElementById('tcKeyGenerated').value = k;
   document.getElementById('tcKeyGeneratedWrap').style.display = '';
 }
-function tcSaveKey(){
+// [FIX-KEY-KHẤU-TRỪ-KHÔNG-LƯU-CHẮC] Trước đây báo "đã lưu" trước khi biết appSave() có
+// thành công hay không — nếu thất bại, key này không hề tồn tại trên Supabase nên học
+// viên không dùng được (báo "key không tồn tại") dù admin tưởng đã tạo xong.
+async function tcSaveKey(){
   const classId = document.getElementById('tcKeyClass').value;
   const studentId = document.getElementById('tcKeyStudent').value;
   const amount = tcMoneyVal(document.getElementById('tcKeyAmount'));
@@ -6750,13 +6899,20 @@ function tcSaveKey(){
   if(!studentId){ showToast('⚠️ Vui lòng chọn học viên'); return; }
   if(!amount){ showToast('⚠️ Vui lòng nhập số tiền khấu trừ'); return; }
   if(!tcGeneratedKeyVal) tcGenerateKey();
-  feeKeys.unshift({id:'key'+Date.now()+Math.random().toString(36).slice(2,7), studentId, classId, amount, key:tcGeneratedKeyVal, used:false, usedAt:null, createdAt:Date.now()});
+  const key = {id:'key'+Date.now()+Math.random().toString(36).slice(2,7), studentId, classId, amount, key:tcGeneratedKeyVal, used:false, usedAt:null, createdAt:Date.now()};
+  feeKeys.unshift(key);
   tcGeneratedKeyVal = null;
   document.getElementById('tcKeyGeneratedWrap').style.display='none';
   document.getElementById('tcKeyAmount').value='';
-  showToast('✅ Đã lưu key vào lịch sử');
-  appSave('feeKeys');
   tcRenderKeyTbl();
+  const res = await appSave('feeKeys', {silent:true});
+  if(res && res.ok===false){
+    feeKeys = feeKeys.filter(k=>k.id!==key.id);
+    tcRenderKeyTbl();
+    showToast('❌ Lưu key KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast('✅ Đã lưu key vào lịch sử');
 }
 function tcRenderKeyTbl(){
   const wrap = document.getElementById('tcKeyTbl');
@@ -6896,21 +7052,41 @@ function tcHvStartTimer(){
   tick();
   tcHvTimerInterval = setInterval(tick, 1000);
 }
-function tcHvApplyKey(){
+// [FIX-ÁP-DỤNG-KEY-KHÔNG-LƯU-CHẮC] Trước đây báo "đã khấu trừ" và cập nhật số tiền phải
+// đóng ngay lập tức, appSave() chạy nền "bắn rồi quên" — nếu lưu thất bại, học viên nhìn
+// thấy số tiền đã giảm và key báo "đã dùng" trên UI, nhưng Supabase vẫn giữ key "chưa
+// dùng" và học phí cũ -> lệch dữ liệu tiền bạc giữa các thiết bị, hoặc F5 là mất phần đã
+// khấu trừ trong khi key coi như "cháy" (không dùng lại được ở nơi khác nữa vì bộ nhớ tab
+// cũ tưởng đã dùng). Giờ chờ lưu thật CẢ 2 mảng thành công; thất bại thì hoàn tác cả key
+// lẫn số tiền và báo lỗi thật để học viên biết cần thử lại.
+async function tcHvApplyKey(){
   const code = document.getElementById('tcHvKeyInput').value.trim();
   const resultEl = document.getElementById('tcHvKeyResult');
   if(!code){ resultEl.style.color='#c0392b'; resultEl.textContent='Vui lòng nhập key'; return; }
   const k = feeKeys.find(x=>x.key===code);
   if(!k || k.studentId !== tcHvPayCtx.me.id){ resultEl.style.color='#c0392b'; resultEl.textContent='❌ Key không tồn tại'; return; }
   if(k.used){ resultEl.style.color='#c0392b'; resultEl.textContent='❌ Key đã được sử dụng'; return; }
+  const prevAmount = tcHvPayCtx.fee.amount;
   k.used = true; k.usedAt = Date.now();
   tcHvPayCtx.fee.amount = Math.max(0, tcHvPayCtx.fee.amount - k.amount);
-  appSave('feeKeys'); appSave('financeFees');
   resultEl.style.color = 'var(--jade)';
   resultEl.textContent = `✅ Đã khấu trừ ${tcFmtMoney(k.amount)}`;
   document.getElementById('tcHvAmountDue').textContent = tcFmtMoney(tcHvPayCtx.fee.amount);
   document.getElementById('tcHvKeyInput').value = '';
   // key đã dùng sẽ trừ vào học phí dù có thoát ra chưa thanh toán
+  const [resK, resF] = await Promise.all([
+    appSave('feeKeys', {silent:true}),
+    appSave('financeFees', {silent:true})
+  ]);
+  const failed = (resK && resK.ok===false) ? resK : (resF && resF.ok===false ? resF : null);
+  if(failed){
+    k.used = false; k.usedAt = null;
+    tcHvPayCtx.fee.amount = prevAmount;
+    resultEl.style.color = '#c0392b';
+    resultEl.textContent = '❌ Áp dụng key thất bại: '+(failed.message||'lỗi không xác định');
+    document.getElementById('tcHvAmountDue').textContent = tcFmtMoney(tcHvPayCtx.fee.amount);
+    showToast('❌ Áp dụng key KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+  }
 }
 function tcHvRevealQr(){
   const img = document.getElementById('tcHvQrImg');
@@ -6933,6 +7109,11 @@ function tcHvRevealQr(){
     if(confirmBtn){ confirmBtn.disabled = false; confirmBtn.style.opacity = ''; confirmBtn.style.cursor = ''; }
   }, 5000);
 }
+// [FIX-XÁC-NHẬN-THANH-TOÁN-KHÔNG-LƯU-CHẮC] Trước đây mở màn "đang chờ admin duyệt" ngay
+// lập tức rồi mới appSave() ở nền — nếu lưu thất bại, học viên đinh ninh đã báo cho admin
+// trong khi Supabase vẫn ghi học phí ở trạng thái "chưa nộp", admin không hề thấy có gì
+// cần duyệt. Giờ chờ lưu thật thành công mới chuyển sang màn chờ; thất bại thì hoàn tác
+// trạng thái khoản phí và báo lỗi thật, giữ nguyên màn thanh toán để học viên thử lại.
 function tcHvConfirmPay(){
   const confirmBtn = document.getElementById('tcHvConfirmBtn');
   if(confirmBtn && confirmBtn.disabled){ showToast('⚠️ Vui lòng bấm để hiện mã QR trước khi xác nhận thanh toán'); return; }
@@ -6940,12 +7121,19 @@ function tcHvConfirmPay(){
     ic:'💳', title:'Xác nhận thanh toán',
     text:'Bạn có chắc chắn đã chuyển khoản và muốn xác nhận thanh toán không?',
     confirmLabel:'XÁC NHẬN',
-    onConfirm:()=>{
+    onConfirm: async ()=>{
       clearInterval(tcHvTimerInterval);
       const fee = tcHvPayCtx.fee;
+      const prevStatus = fee.status, prevSubmittedAt = fee.submittedAt, prevQrCreatedAt = fee.qrCreatedAt;
       fee.status = 'awaiting';
       fee.submittedAt = Date.now();
       fee.qrCreatedAt = null;
+      const res = await appSave('financeFees', {silent:true});
+      if(res && res.ok===false){
+        fee.status = prevStatus; fee.submittedAt = prevSubmittedAt; fee.qrCreatedAt = prevQrCreatedAt;
+        showToast('❌ Xác nhận thanh toán KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+        return;
+      }
       closeModal('tcHvPaymentModalBg');
       tcHvRender();
       openModal('tcHvWaitModalBg');
@@ -6953,7 +7141,6 @@ function tcHvConfirmPay(){
       tcHvWaitTimeout = setTimeout(()=> tcHvCloseWait(), 20000);
       if(typeof tcUpdateFinanceDot==='function') tcUpdateFinanceDot();
       if(typeof renderAdminTasksPane==='function') renderAdminTasksPane();
-      if(typeof tcBroadcast==='function') tcBroadcast();
     }
   });
 }
@@ -7025,15 +7212,24 @@ function refreshClassSelects(){
 }
 
 /* ----- Lớp ----- */
-function createClassAdmin(){
+// [FIX-TẠO-LỚP-KHÔNG-LƯU-CHẮC] Trước đây appSave() "bắn rồi quên" — lớp mới có thể hiện
+// trên UI dù chưa hề lưu lên Supabase, biến mất khi F5/đăng nhập lại (và mã lớp 4 số coi
+// như "đã dùng" trên UI hiện tại dù thực ra chưa hề tồn tại trên máy chủ).
+async function createClassAdmin(){
   const name = document.getElementById('clName').value.trim();
   const code = document.getElementById('clCode').value.trim();
   const mode = document.getElementById('clMode').value;
   if(!name || !code){ showToast('⚠️ Vui lòng nhập tên lớp và mã lớp'); return; }
   if(!/^\d{4}$/.test(code)){ showToast('⚠️ Mã lớp phải gồm đúng 4 chữ số'); return; }
   if(adminClasses.some(c=>c.code===code)){ showToast('⚠️ Mã lớp đã tồn tại, vui lòng chọn mã khác'); return; }
-  adminClasses.push({id:'cls'+Date.now(), name, code, mode, teacherId:null, ended:false});
-  appSave('adminClasses');
+  const nc = {id:'cls'+Date.now(), name, code, mode, teacherId:null, ended:false};
+  adminClasses.push(nc);
+  const res = await appSave('adminClasses', {silent:true});
+  if(res && res.ok===false){
+    adminClasses = adminClasses.filter(c=>c.id!==nc.id);
+    showToast('❌ Tạo lớp KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   document.getElementById('clName').value='';
   document.getElementById('clCode').value='';
   showToast(`✅ Đã tạo lớp "${name}"`);
@@ -7195,7 +7391,7 @@ function kcGenLessons(courseId, sessions){
     });
   }
 }
-function kcSaveCourse(){
+async function kcSaveCourse(){
   const name = document.getElementById('kcName').value.trim();
   const code = document.getElementById('kcCode').value.trim();
   const sessions = parseInt(document.getElementById('kcSessions').value, 10);
@@ -7205,7 +7401,17 @@ function kcSaveCourse(){
   const id = 'kc'+Date.now();
   kcCourses.push({id, name, code, sessions, createdAt:new Date().toISOString()});
   kcGenLessons(id, sessions);
-  appSave('kcCourses'); appSave('kcLessons');
+  const [resCourses, resLessons] = await Promise.all([
+    appSave('kcCourses', {silent:true}),
+    appSave('kcLessons', {silent:true})
+  ]);
+  if((resCourses && resCourses.ok===false) || (resLessons && resLessons.ok===false)){
+    kcCourses = kcCourses.filter(c=>c.id!==id);
+    kcLessons = kcLessons.filter(l=>l.courseId!==id);
+    const msg = (resCourses && resCourses.message) || (resLessons && resLessons.message) || 'lỗi không xác định';
+    showToast('❌ Lưu khoá học KHÔNG thành công: '+msg+' — vui lòng thử lại.');
+    return;
+  }
   document.getElementById('kcName').value='';
   document.getElementById('kcCode').value='';
   document.getElementById('kcSessions').value='';
@@ -7239,15 +7445,24 @@ function kcOpenNameLessons(courseId){
   document.getElementById('kcNlList').dataset.courseId = courseId;
   openModal('kcNameLessonsModalBg');
 }
-function kcSaveLessonNames(){
+async function kcSaveLessonNames(){
   const wrap = document.getElementById('kcNlList');
+  const prevNames = {};
   wrap.querySelectorAll('input[data-lesson-id]').forEach(inp=>{
     const l = kcLessons.find(l=>l.id===inp.dataset.lessonId);
-    if(l) l.name = inp.value.trim() || l.name;
+    if(l){ prevNames[l.id] = l.name; l.name = inp.value.trim() || l.name; }
   });
   closeModal('kcNameLessonsModalBg');
+  const res = await appSave('kcLessons', {silent:true});
+  if(res && res.ok===false){
+    Object.keys(prevNames).forEach(id=>{
+      const l = kcLessons.find(l=>l.id===id);
+      if(l) l.name = prevNames[id];
+    });
+    showToast('❌ Lưu tên bài học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã lưu tên bài học');
-  appSave('kcLessons');
   kcRefreshAllSelects();
   if(kcMgActiveCourseId===wrap.dataset.courseId) kcMgRenderLessonNav();
 }
@@ -7259,17 +7474,31 @@ function kcOpenDeleteCourse(courseId){
   document.getElementById('kcDcCodeInput').value = '';
   openModal('kcDeleteCourseModalBg');
 }
-function kcConfirmDeleteCourse(){
+async function kcConfirmDeleteCourse(){
   const c = kcCourses.find(c=>c.id===kcDeletingCourseId);
   if(!c) return;
   const input = document.getElementById('kcDcCodeInput').value.trim();
   if(input !== c.code){ showToast('⚠️ Mã khoá học không đúng, vui lòng thử lại'); return; }
+  const prevLessons = kcLessons;
+  const prevClassCourse = kcClassCourse;
+  const prevSubmissions = kcSubmissions;
+  const prevCourses = kcCourses;
   const lessonIds = kcLessons.filter(l=>l.courseId===c.id).map(l=>l.id);
   kcLessons = kcLessons.filter(l=>l.courseId!==c.id);
   kcClassCourse = kcClassCourse.filter(ac=>ac.courseId!==c.id);
   kcSubmissions = kcSubmissions.filter(s=>!lessonIds.includes(s.lessonId));
   kcCourses = kcCourses.filter(x=>x.id!==c.id);
-  appSave('kcLessons'); appSave('kcClassCourse'); appSave('kcSubmissions'); appSave('kcCourses');
+  const [r1,r2,r3,r4] = await Promise.all([
+    appSave('kcLessons', {silent:true}), appSave('kcClassCourse', {silent:true}),
+    appSave('kcSubmissions', {silent:true}), appSave('kcCourses', {silent:true})
+  ]);
+  const failed = [r1,r2,r3,r4].find(r=>r && r.ok===false);
+  if(failed){
+    kcLessons = prevLessons; kcClassCourse = prevClassCourse;
+    kcSubmissions = prevSubmissions; kcCourses = prevCourses;
+    showToast('❌ Xoá khoá học KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('kcDeleteCourseModalBg');
   showToast(`🗑️ Đã xoá khoá học "${qdEsc(c.name)}"`);
   kcRenderCourseList();
@@ -7286,14 +7515,20 @@ function kcRefreshAllSelects(){
   });
   const kcAssignClass = document.getElementById('kcAssignClass'); if(kcAssignClass) kcAssignClass.innerHTML = classOpts;
 }
-function kcSaveAssignment(){
+async function kcSaveAssignment(){
   const classId = document.getElementById('kcAssignClass').value;
   const courseId = document.getElementById('kcAssignCourse').value;
   if(!classId || !courseId){ showToast('⚠️ Vui lòng chọn lớp và khoá học'); return; }
   const dup = kcClassCourse.find(ac=>ac.classId===classId && ac.courseId===courseId && ac.status!=='done');
   if(dup){ showToast('⚠️ Lớp này đã được gán khoá học này rồi'); return; }
-  kcClassCourse.push({id:'acc'+Date.now(), classId, courseId, status:'incomplete'});
-  appSave('kcClassCourse');
+  const na = {id:'acc'+Date.now(), classId, courseId, status:'incomplete'};
+  kcClassCourse.push(na);
+  const res = await appSave('kcClassCourse', {silent:true});
+  if(res && res.ok===false){
+    kcClassCourse = kcClassCourse.filter(a=>a.id!==na.id);
+    showToast('❌ Gán khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã gán khoá học cho lớp');
   kcRenderAssignList();
 }
@@ -7323,9 +7558,20 @@ function kcRenderAssignList(){
       </tr>`;
     }).join('');
 }
-function kcSetAssignStatus(id, status){
+async function kcSetAssignStatus(id, status){
   const ac = kcClassCourse.find(a=>a.id===id);
-  if(ac){ ac.status = status; appSave('kcClassCourse'); kcRenderAssignList(); showToast('✅ Đã cập nhật trạng thái'); }
+  if(!ac) return;
+  const prevStatus = ac.status;
+  ac.status = status;
+  kcRenderAssignList();
+  const res = await appSave('kcClassCourse', {silent:true});
+  if(res && res.ok===false){
+    ac.status = prevStatus;
+    kcRenderAssignList();
+    showToast('❌ Cập nhật trạng thái KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast('✅ Đã cập nhật trạng thái');
 }
 function kcOpenDeleteAssign(id){
   const ac = kcClassCourse.find(a=>a.id===id);
@@ -7336,9 +7582,15 @@ function kcOpenDeleteAssign(id){
   document.getElementById('kcDaBanner').innerHTML = `Bạn có chắc muốn xoá gán khoá học <b>${qdEsc(course?course.name:'')}</b> khỏi lớp <b>${qdEsc(cls?cls.name:'')}</b> không? Hành động này không thể hoàn tác.`;
   openModal('kcDeleteAssignModalBg');
 }
-function kcConfirmDeleteAssign(){
+async function kcConfirmDeleteAssign(){
+  const prevClassCourse = kcClassCourse;
   kcClassCourse = kcClassCourse.filter(a=>a.id!==kcDeletingAssignId);
-  appSave('kcClassCourse');
+  const res = await appSave('kcClassCourse', {silent:true});
+  if(res && res.ok===false){
+    kcClassCourse = prevClassCourse;
+    showToast('❌ Xoá gán khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('kcDeleteAssignModalBg');
   showToast('🗑️ Đã xoá gán khoá học khỏi lớp');
   kcRenderAssignList();
@@ -7390,9 +7642,12 @@ function kcMgRenderLessonForm(l){
     <button class="btn btn-primary" style="margin-top:14px;" onclick="kcMgSaveLesson('${l.id}')">LƯU BÀI HỌC</button>
   `;
 }
-function kcMgSaveLesson(lessonId){
+async function kcMgSaveLesson(lessonId){
   const l = kcLessons.find(l=>l.id===lessonId);
   if(!l) return;
+  const prev = {desc:l.desc, content:l.content, exercise:l.exercise, homework:l.homework,
+    deadlineStart:l.deadlineStart, deadlineEnd:l.deadlineEnd,
+    lockTeacherExercise:l.lockTeacherExercise, lockTeacherHomework:l.lockTeacherHomework};
   // [BẢO MẬT] Lọc HTML trước khi lưu (không tin nội dung contenteditable) để dữ liệu
   // trong Supabase luôn sạch, kể cả khi có người can thiệp DOM để chèn HTML khác đi.
   l.desc = rteSanitize(document.getElementById('kcMgDesc').innerHTML);
@@ -7403,7 +7658,12 @@ function kcMgSaveLesson(lessonId){
   l.deadlineEnd = document.getElementById('kcMgDeadlineEnd').value;
   l.lockTeacherExercise = document.getElementById('kcMgLockExercise').checked;
   l.lockTeacherHomework = document.getElementById('kcMgLockHomework').checked;
-  appSave('kcLessons');
+  const res = await appSave('kcLessons', {silent:true});
+  if(res && res.ok===false){
+    Object.assign(l, prev);
+    showToast('❌ Lưu nội dung KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast(`✅ Đã lưu nội dung "${qdEsc(l.name)}"`);
 }
 
@@ -7710,7 +7970,7 @@ async function kcHvRemovePendingFile(name){
      (chưa nộp bài) nên xoá ngay an toàn, không cần đợi tới lúc nộp/lưu. */
   if(removed && removed.path) await sbDeleteFileByUrl(removed.url);
 }
-function kcHvSubmit(){
+async function kcHvSubmit(){
   const student = typeof currentStudentRecord==='function' ? currentStudentRecord() : null;
   const l = kcLessons.find(x=>x.id===kcHvActiveLessonId);
   if(!student || !l) return;
@@ -7721,6 +7981,8 @@ function kcHvSubmit(){
   const driveLink = document.getElementById('kcHvDriveLink').value.trim();
   let sub = kcSubmissions.find(s=>s.lessonId===l.id && s.studentId===student.id);
   const fileLinks = (sub ? (sub.fileLinks||[]) : []).concat(kcHvPendingFiles);
+  const isNew = !sub;
+  const prevSub = sub ? {...sub} : null;
   if(!sub){
     sub = {id:'sub'+Date.now()+Math.random().toString(36).slice(2,6), lessonId:l.id, studentId:student.id, content, driveLink, fileLinks, submittedAt:new Date().toLocaleString('vi-VN'), seenByAdmin:false, seenByTeacher:false};
     kcSubmissions.push(sub);
@@ -7728,8 +7990,17 @@ function kcHvSubmit(){
     sub.content = content; sub.driveLink = driveLink; sub.fileLinks = fileLinks; sub.submittedAt = new Date().toLocaleString('vi-VN');
     sub.seenByAdmin = false; sub.seenByTeacher = false;
   }
+  const pendingBackup = kcHvPendingFiles;
   kcHvPendingFiles = [];
-  appSave('kcSubmissions');
+  const res = await appSave('kcSubmissions', {silent:true});
+  if(res && res.ok===false){
+    if(isNew){ kcSubmissions = kcSubmissions.filter(s=>s.id!==sub.id); }
+    else { Object.assign(sub, prevSub); }
+    kcHvPendingFiles = pendingBackup;
+    showToast('❌ Nộp bài tập KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    kcHvOpenLesson(l.id);
+    return;
+  }
   showToast('✅ Đã nộp bài tập về nhà');
   kcHvOpenLesson(l.id);
 }
@@ -7819,16 +8090,23 @@ function kcGvRenderLessonForm(l){
     <button class="btn btn-primary" style="margin-top:14px;" onclick="kcGvSaveLesson('${l.id}')">LƯU BÀI HỌC</button>
   `;
 }
-function kcGvSaveLesson(lessonId){
+async function kcGvSaveLesson(lessonId){
   const l = kcLessons.find(l=>l.id===lessonId);
   if(!l) return;
+  const prev = {desc:l.desc, content:l.content, exercise:l.exercise, homework:l.homework,
+    deadlineStart:l.deadlineStart, deadlineEnd:l.deadlineEnd};
   l.desc = rteSanitize(document.getElementById('kcGvDesc').innerHTML);
   l.content = rteSanitize(document.getElementById('kcGvContent').innerHTML);
   if(!l.lockTeacherExercise) l.exercise = rteSanitize(document.getElementById('kcGvExercise').innerHTML);
   if(!l.lockTeacherHomework) l.homework = rteSanitize(document.getElementById('kcGvHomework').innerHTML);
   l.deadlineStart = document.getElementById('kcGvDeadlineStart').value;
   l.deadlineEnd = document.getElementById('kcGvDeadlineEnd').value;
-  appSave('kcLessons');
+  const res = await appSave('kcLessons', {silent:true});
+  if(res && res.ok===false){
+    Object.assign(l, prev);
+    showToast('❌ Lưu nội dung KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast(`✅ Đã lưu nội dung "${qdEsc(l.name)}"`);
 }
 
@@ -8005,7 +8283,10 @@ function clearStudentForm(){
   document.getElementById('hvMode').value='online';
   document.getElementById('hvClass').value='';
 }
-function saveStudentAdmin(){
+// [FIX-HỌC-VIÊN-THÊM/SỬA-KHÔNG-LƯU-CHẮC] Trước đây appSave() "bắn rồi quên" ở đây — giống
+// hệt lỗi cũ đã sửa ở deleteStudentAdmin. Học viên mới có thể xuất hiện trên UI dù chưa hề
+// lưu lên Supabase, biến mất khi F5/đăng nhập lại. Giờ chờ lưu thật thành công.
+async function saveStudentAdmin(){
   const name = document.getElementById('hvName').value.trim();
   const code = document.getElementById('hvCode').value.trim();
   const phone = document.getElementById('hvPhone').value.trim();
@@ -8015,8 +8296,14 @@ function saveStudentAdmin(){
   const email = document.getElementById('hvEmail').value.trim();
   if(!name || !code || !classId || !email){ showToast('⚠️ Vui lòng nhập đủ họ tên, mã số, lớp và email đăng nhập'); return; }
   if(adminStudents.some(s=>s.code===code)){ showToast('⚠️ Mã số học viên đã tồn tại'); return; }
-  adminStudents.push({id:'hv'+Date.now(), name, code, phone, parentPhone, mode, classId, email, att:'present', createdAt:Date.now()});
-  appSave('adminStudents');
+  const ns = {id:'hv'+Date.now(), name, code, phone, parentPhone, mode, classId, email, att:'present', createdAt:Date.now()};
+  adminStudents.push(ns);
+  const res = await appSave('adminStudents', {silent:true});
+  if(res && res.ok===false){
+    adminStudents = adminStudents.filter(s=>s.id!==ns.id);
+    showToast('❌ Thêm học viên KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   clearStudentForm();
   showToast(`✅ Đã thêm học viên "${name}"`);
   renderStudentTable();
@@ -8058,19 +8345,25 @@ function editStudentAdmin(id){
   document.getElementById('hvEditClass').value = s.classId || '';
   openModal('studentEditModalBg');
 }
-function saveStudentEdit(){
+async function saveStudentEdit(){
   const s = adminStudents.find(s=>s.id===editingStudentId2);
   if(!s) return;
   const name = document.getElementById('hvEditName').value.trim();
   const code = document.getElementById('hvEditCode').value.trim();
   if(!name || !code){ showToast('⚠️ Vui lòng nhập đủ họ tên và mã số học viên'); return; }
   if(adminStudents.some(x=>x.id!==s.id && x.code===code)){ showToast('⚠️ Mã số học viên đã tồn tại'); return; }
+  const prev = {name:s.name, code:s.code, phone:s.phone, parentPhone:s.parentPhone, mode:s.mode, classId:s.classId};
   s.name = name; s.code = code;
   s.phone = document.getElementById('hvEditPhone').value.trim();
   s.parentPhone = document.getElementById('hvEditParentPhone').value.trim();
   s.mode = document.getElementById('hvEditMode').value;
   s.classId = document.getElementById('hvEditClass').value;
-  appSave('adminStudents');
+  const res = await appSave('adminStudents', {silent:true});
+  if(res && res.ok===false){
+    Object.assign(s, prev);
+    showToast('❌ Cập nhật học viên KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('studentEditModalBg');
   renderStudentTable();
   showToast('✅ Đã cập nhật thông tin học viên');
@@ -8106,7 +8399,7 @@ function clearTeacherForm2(){
   const sel = document.getElementById('gvClasses2');
   Array.from(sel.options).forEach(o=>o.selected=false);
 }
-function saveTeacherAdmin2(){
+async function saveTeacherAdmin2(){
   const name = document.getElementById('gvName2').value.trim();
   const code = document.getElementById('gvCode2').value.trim();
   const phone = document.getElementById('gvPhone2').value.trim();
@@ -8116,12 +8409,30 @@ function saveTeacherAdmin2(){
   const email = document.getElementById('gvEmail2').value.trim();
   if(!name || !code || !email){ showToast('⚠️ Vui lòng nhập đủ họ tên, mã số và email đăng nhập'); return; }
   if(adminTeachers2.some(t=>t.code===code)){ showToast('⚠️ Mã số giáo viên đã tồn tại'); return; }
-  adminTeachers2.push({id:'gv2'+Date.now(), name, code, phone, teachMode, workMode, classIds, email, createdAt:Date.now()});
-  appSave('adminTeachers2');
-  clearTeacherForm2();
-  showToast(`✅ Đã thêm giáo viên "${name}"`);
+  const newId = 'gv2'+Date.now();
+  adminTeachers2.push({id:newId, name, code, phone, teachMode, workMode, classIds:[], email, createdAt:Date.now()});
+  // [FIX-TRIỆT-ĐỂ-LIÊN-KẾT-GV-LỚP] Bắt buộc đi qua linkTeacherToClasses() để lớp được
+  // chọn cũng được gán teacherId trỏ ngược lại GV mới — không còn tạo GV "mồ côi lớp".
+  linkTeacherToClasses(newId, classIds);
   renderTeacherTable2();
   renderClassTable();
+  const [resT, resC] = await Promise.all([
+    appSave('adminTeachers2', {silent:true}),
+    appSave('adminClasses', {silent:true})
+  ]);
+  const failed = (resT && resT.ok===false) ? resT : (resC && resC.ok===false ? resC : null);
+  if(failed){
+    // Lưu thất bại thật sự -> khôi phục lại toàn bộ trạng thái cũ, không để lại GV "ma"
+    // chỉ tồn tại trên UI của phiên hiện tại rồi biến mất sau khi đăng nhập lại.
+    linkTeacherToClasses(newId, []);
+    adminTeachers2 = adminTeachers2.filter(t=>t.id!==newId);
+    renderTeacherTable2();
+    renderClassTable();
+    showToast('❌ Thêm giáo viên KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  clearTeacherForm2();
+  showToast(`✅ Đã thêm giáo viên "${name}"`);
 }
 function renderTeacherTable2(){
   const wrap = document.getElementById('teacherTbl2');
@@ -8623,11 +8934,22 @@ function lichAutoGenerateNhomWeek(lh, weekIndex){
   if(!parsed) return;
   const weekStart = addDays(parseDateInput(lh.startDate), weekIndex*7);
   const cls = adminClasses.find(c=>c.id===lh.classId);
+  const newIds = [];
   parsed.forEach(seg=>{
     const date = addDays(weekStart, seg.dow-2);
-    tietHocList.push({id:'tiet'+Date.now()+Math.random().toString(36).slice(2,7), lichHocId:lh.id, weekIndex, code:seg.code, teacherId: cls?cls.teacherId:null, time:seg.time, maxSlots:1, mode:'online', room:'', date:toISODate(date), dayOfWeek:seg.dow, status:'active'});
+    const t = {id:'tiet'+Date.now()+Math.random().toString(36).slice(2,7), lichHocId:lh.id, weekIndex, code:seg.code, teacherId: cls?cls.teacherId:null, time:seg.time, maxSlots:1, mode:'online', room:'', date:toISODate(date), dayOfWeek:seg.dow, status:'active'};
+    tietHocList.push(t);
+    newIds.push(t.id);
   });
-  appSave('tietHocList'); // chỉ lưu khi thực sự vừa sinh buổi học mới (đã có "already" chặn trùng ở trên)
+  // chỉ lưu khi thực sự vừa sinh buổi học mới (đã có "already" chặn trùng ở trên).
+  // Chạy nền (không chặn UI vì hàm này được gọi lặp lại cho từng tuần), nhưng vẫn
+  // rollback nếu lưu thất bại để tránh buổi học "ma" chỉ tồn tại ở phía client.
+  appSave('tietHocList', {silent:true}).then(res=>{
+    if(res && res.ok===false){
+      tietHocList = tietHocList.filter(t=>!newIds.includes(t.id));
+      console.error('[Lịch học] Tự sinh buổi học KHÔNG thành công:', res.message);
+    }
+  });
 }
 /* sinh sẵn buổi học cho TOÀN BỘ các tuần của 1 lớp khoá học ngay khi lịch cố định được lưu/tải,
    để học viên & giáo viên thấy đủ lịch từ tuần 1 đến tuần cuối ngay lập tức, không phải đợi admin mở từng tuần ra xem */
@@ -8753,12 +9075,25 @@ function lichOpenRemoveHvLesson(lessonId, studentId){
   document.getElementById('lichRemoveHvLessonDesc').textContent = `${qdEsc(s.name)} (${qdEsc(s.code)}) sẽ được gỡ khỏi buổi ${qdEsc(t.code)} · ${t.time}. Chỗ trống sẽ được nhường cho học viên khác (nếu có người đang chờ).`;
   openModal('lichRemoveHvLessonModalBg');
 }
-function lichConfirmRemoveHvLesson(){
+// [FIX-ĐĂNG-KÝ-BUỔI-HỌC-KHÔNG-LƯU-CHẮC] Cụm hàm dưới đây (xoá/thay thế buổi học của học
+// viên, và tự đăng ký/huỷ đăng ký phía học viên) trước đây appSave('dangKyList') "bắn rồi
+// quên" — logic giữ chỗ (registered/queued, đôn người chờ lên khi có chỗ trống) có thể lệch
+// giữa các thiết bị nếu 1 thao tác lưu thất bại mà không hoàn tác. Giờ chụp lại toàn bộ
+// dangKyList trước khi sửa (vì 1 thao tác có thể đôn thêm người khác từ hàng chờ), chờ lưu
+// thật thành công mới báo OK; thất bại thì khôi phục nguyên trạng.
+async function lichConfirmRemoveHvLesson(){
   const ctx = lichRemoveHvLessonCtx;
   if(!ctx) return;
+  const prevSnapshot = JSON.parse(JSON.stringify(dangKyList));
   lichCancelStudentFromLesson(ctx.lessonId, ctx.studentId);
-  appSave('dangKyList');
   closeModal('lichRemoveHvLessonModalBg');
+  const res = await appSave('dangKyList', {silent:true});
+  if(res && res.ok===false){
+    dangKyList = prevSnapshot;
+    showToast('❌ Xoá buổi học của học viên KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    lichViewRegistrations(ctx.lessonId);
+    return;
+  }
   lichViewRegistrations(ctx.lessonId);
   showToast('🗑️ Đã xoá buổi học của học viên');
 }
@@ -8807,24 +9142,30 @@ function lichOpenReplaceLesson(lessonId, studentId){
   }
   openModal('lichReplaceLessonModalBg');
 }
-function lichConfirmReplaceLesson(newLessonId){
+async function lichConfirmReplaceLesson(newLessonId){
   const ctx = lichReplaceLessonCtx;
   if(!ctx) return;
   const newLesson = tietHocList.find(x=>x.id===newLessonId);
   if(!newLesson) return;
   if(lessonEnrolledStudentIds(newLesson).length >= newLesson.maxSlots){ showToast('⚠️ Buổi học này vừa đầy chỗ, vui lòng chọn buổi khác'); lichOpenReplaceLesson(ctx.lessonId, ctx.studentId); return; }
+  const prevSnapshot = JSON.parse(JSON.stringify(dangKyList));
   lichCancelStudentFromLesson(ctx.lessonId, ctx.studentId);
   const already = dangKyList.find(d=>d.lessonId===newLessonId && d.studentId===ctx.studentId);
   if(already){ already.status='registered'; already.time=new Date().toISOString(); }
   else{ dangKyList.push({id:'dk'+Date.now()+Math.random().toString(36).slice(2,7), lessonId:newLessonId, studentId:ctx.studentId, time:new Date().toISOString(), status:'registered'}); }
-  appSave('dangKyList');
+  const res = await appSave('dangKyList', {silent:true});
+  if(res && res.ok===false){
+    dangKyList = prevSnapshot;
+    showToast('❌ Thay thế buổi học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
   closeModal('lichReplaceLessonModalBg');
   showToast('✅ Đã thay thế buổi học cho học viên');
 }
 
 
 /* ----- lưu thời gian đăng ký cho tuần ----- */
-function lichSaveWeekSettings(type){
+async function lichSaveWeekSettings(type){
   if(type==='nhom') return; // lớp khoá học không dùng thời gian mở/đóng đăng ký
   if(!lichCurrentCtx || lichCurrentCtx.type!==type){ showToast('⚠️ Vui lòng chọn tuần trước'); return; }
   const openId = type==='1v1' ? 'lt11RegOpen' : 'ltBuRegOpen';
@@ -8832,8 +9173,15 @@ function lichSaveWeekSettings(type){
   const regOpen = document.getElementById(openId).value;
   const regClose = document.getElementById(closeId).value;
   if(regOpen && regClose && new Date(regOpen) >= new Date(regClose)){ showToast('⚠️ Thời gian đóng đăng ký phải sau thời gian mở'); return; }
-  weekSettings[`${lichCurrentCtx.lhId}_${lichCurrentCtx.wIdx}`] = {regOpen, regClose};
-  appSave('weekSettings');
+  const key = `${lichCurrentCtx.lhId}_${lichCurrentCtx.wIdx}`;
+  const prev = weekSettings[key];
+  weekSettings[key] = {regOpen, regClose};
+  const res = await appSave('weekSettings', {silent:true});
+  if(res && res.ok===false){
+    if(prev===undefined) delete weekSettings[key]; else weekSettings[key] = prev;
+    showToast('❌ Lưu thời gian đăng ký KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã lưu thời gian đăng ký cho tuần này');
 }
 
@@ -8909,7 +9257,7 @@ function lichOpenEditLesson(id){
   const r=document.querySelector(`input[name="llmMode"][value="${t.mode}"]`); if(r) r.checked=true;
   openModal('lichLessonModalBg');
 }
-function lichSaveLesson(){
+async function lichSaveLesson(){
   const ctx = lichCurrentCtx;
   if(!ctx) return;
   const lh = lichHocList.find(l=>l.id===ctx.lhId);
@@ -8922,15 +9270,24 @@ function lichSaveLesson(){
   const modeInput = document.querySelector('input[name="llmMode"]:checked');
   const mode = modeInput ? modeInput.value : 'online';
   if(!code || !teacherId || !time || !slots || slots<1){ showToast('⚠️ Vui lòng nhập đầy đủ thông tin buổi học'); return; }
+  let prevSnapshot = null, newId = null;
   if(lichEditingLessonId){
     const t = tietHocList.find(x=>x.id===lichEditingLessonId);
+    prevSnapshot = {...t};
     Object.assign(t, {code, teacherId, time, maxSlots:slots, room, mode});
   } else {
     const d = new Date(lichLessonDateCtx+'T00:00:00');
-    tietHocList.push({id:'tiet'+Date.now()+Math.random().toString(36).slice(2,7), lichHocId:lh.id, weekIndex:ctx.wIdx, code, teacherId, time, maxSlots:slots, mode, room, date:lichLessonDateCtx, dayOfWeek:jsDowToVn(d.getDay()), status:'active'});
+    newId = 'tiet'+Date.now()+Math.random().toString(36).slice(2,7);
+    tietHocList.push({id:newId, lichHocId:lh.id, weekIndex:ctx.wIdx, code, teacherId, time, maxSlots:slots, mode, room, date:lichLessonDateCtx, dayOfWeek:jsDowToVn(d.getDay()), status:'active'});
+  }
+  const res = await appSave('tietHocList', {silent:true});
+  if(res && res.ok===false){
+    if(newId){ tietHocList = tietHocList.filter(x=>x.id!==newId); }
+    else { const t = tietHocList.find(x=>x.id===lichEditingLessonId); if(t) Object.assign(t, prevSnapshot); }
+    showToast('❌ Lưu buổi học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
   }
   closeModal('lichLessonModalBg');
-  appSave('tietHocList');
   lichRenderCalendarDays(ctx.type);
   showToast('✅ Đã lưu buổi học');
 }
@@ -9034,11 +9391,17 @@ function ddSetHvStatus(btn, status){
   btn.className = status==='present' ? 'sel-present' : status==='late' ? 'sel-late' : 'sel-absent';
   row.dataset.status = status;
 }
-function confirmSaveDdHv(){
+// [FIX-ĐIỂM-DANH-KHÔNG-LƯU-CHẮC] Điểm danh ảnh hưởng trực tiếp học phí/hoàn tiền theo buổi
+// của học viên và lương giáo viên (module ddGv bên dưới) — trước đây appSave() "bắn rồi
+// quên" ở toàn bộ cụm điểm danh. Giờ chờ lưu thật thành công; thất bại thì khôi phục đúng
+// snapshot trước khi sửa và báo lỗi thật.
+async function confirmSaveDdHv(){
   const s = adminStudents.find(x=>x.id===ddEditingStudentId);
   if(!s) return;
   const input = document.getElementById('ddHvEditCode').value.trim();
   if(input!==s.code){ showToast('⚠️ Mã số học viên không đúng, vui lòng thử lại'); return; }
+  const prevDiemDanhList = JSON.parse(JSON.stringify(diemDanhList));
+  const prevManualVal = diemDanhManual[`hv_${ddEditingStudentId}`];
   document.querySelectorAll('#ddHvEditSessions .att-sess-row').forEach(row=>{
     if(row.dataset.manual==='1'){ if(row.dataset.status) diemDanhManual[`hv_${ddEditingStudentId}`] = row.dataset.status; return; }
     const lessonId = row.dataset.lesson;
@@ -9047,7 +9410,18 @@ function confirmSaveDdHv(){
     if(!rec){ diemDanhList.push({id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, studentId:ddEditingStudentId, status, time:new Date().toISOString()}); }
     else rec.status = status;
   });
-  appSave('diemDanhList'); appSave('diemDanhManual');
+  const [resD, resM] = await Promise.all([
+    appSave('diemDanhList', {silent:true}),
+    appSave('diemDanhManual', {silent:true})
+  ]);
+  const failed = (resD && resD.ok===false) ? resD : (resM && resM.ok===false ? resM : null);
+  if(failed){
+    diemDanhList = prevDiemDanhList;
+    if(prevManualVal===undefined) delete diemDanhManual[`hv_${ddEditingStudentId}`];
+    else diemDanhManual[`hv_${ddEditingStudentId}`] = prevManualVal;
+    showToast('❌ Lưu điểm danh học viên KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('ddHvEditModalBg');
   renderDdHvTable();
   showToast('✅ Đã lưu điểm danh học viên');
@@ -9107,11 +9481,17 @@ function ddSetGvStatus(btn, status){
   btn.className = status==='approved' ? 'sel-present' : 'sel-absent';
   row.dataset.status = status;
 }
-function confirmSaveDdGv(){
+// [FIX-ĐIỂM-DANH-GV-KHÔNG-LƯU-CHẮC] "Đã dạy/Chưa dạy" ở đây là căn cứ tính lương giáo
+// viên (xem module Tài chính) — trước đây appSave() "bắn rồi quên" nên bảng lương có thể
+// tính theo dữ liệu chưa hề được lưu thật. Giờ chờ lưu thật thành công, thất bại thì khôi
+// phục đúng snapshot.
+async function confirmSaveDdGv(){
   const t = adminTeachers2.find(x=>x.id===ddEditingTeacherId);
   if(!t) return;
   const input = document.getElementById('ddGvEditCode').value.trim();
   if(input!==t.code){ showToast('⚠️ Mã số giáo viên không đúng, vui lòng thử lại'); return; }
+  const prevDiemDanhGVList = JSON.parse(JSON.stringify(diemDanhGVList));
+  const prevManualVal = diemDanhManual[`gv_${ddEditingTeacherId}`];
   document.querySelectorAll('#ddGvEditSessions .att-sess-row').forEach(row=>{
     if(row.dataset.manual==='1'){ if(row.dataset.status) diemDanhManual[`gv_${ddEditingTeacherId}`] = row.dataset.status; return; }
     const lessonId = row.dataset.lesson;
@@ -9120,7 +9500,18 @@ function confirmSaveDdGv(){
     if(!rec){ diemDanhGVList.push({id:'ddgv'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, teacherId:ddEditingTeacherId, hasTaught: status==='approved', status, time:new Date().toISOString()}); }
     else { rec.hasTaught = status==='approved'; rec.status = status; }
   });
-  appSave('diemDanhGVList'); appSave('diemDanhManual');
+  const [resG, resM] = await Promise.all([
+    appSave('diemDanhGVList', {silent:true}),
+    appSave('diemDanhManual', {silent:true})
+  ]);
+  const failed = (resG && resG.ok===false) ? resG : (resM && resM.ok===false ? resM : null);
+  if(failed){
+    diemDanhGVList = prevDiemDanhGVList;
+    if(prevManualVal===undefined) delete diemDanhManual[`gv_${ddEditingTeacherId}`];
+    else diemDanhManual[`gv_${ddEditingTeacherId}`] = prevManualVal;
+    showToast('❌ Lưu điểm danh giáo viên KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('ddGvEditModalBg');
   renderDdGvTable();
   showToast('✅ Đã lưu điểm danh giáo viên');
@@ -9320,27 +9711,39 @@ function hvDangKyCardHtml(t, student, canRegister){
     <div class="lc-row">${modeLabelIcon(t.mode)} · ${registered}/${t.maxSlots}${full?' (Đầy)':''}</div>
     <div class="lc-actions" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${action}</div></div>`;
 }
-function hvDangKyLesson(lessonId){
+async function hvDangKyLesson(lessonId){
   const student = currentStudentRecord();
   const t = tietHocList.find(x=>x.id===lessonId);
   if(!student || !t) return;
   if(dangKyList.find(d=>d.lessonId===lessonId && d.studentId===student.id && d.status!=='cancelled')){ showToast('⚠️ Bạn đã đăng ký buổi học này'); return; }
   const registered = dangKyList.filter(d=>d.lessonId===lessonId && d.status==='registered').length;
   const status = registered<t.maxSlots ? 'registered' : 'queued';
-  dangKyList.push({id:'dk'+Date.now()+Math.random().toString(36).slice(2,7), lessonId, studentId:student.id, time:new Date().toISOString(), status});
-  appSave('dangKyList');
+  const dk = {id:'dk'+Date.now()+Math.random().toString(36).slice(2,7), lessonId, studentId:student.id, time:new Date().toISOString(), status};
+  dangKyList.push(dk);
+  const res = await appSave('dangKyList', {silent:true});
+  if(res && res.ok===false){
+    dangKyList = dangKyList.filter(d=>d.id!==dk.id);
+    showToast('❌ Đăng ký KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   lichHvRenderDkCalendar();
   showToast(status==='registered' ? '✅ Đăng ký thành công!' : '⏳ Lớp đã đầy, bạn đã được thêm vào danh sách chờ.');
 }
 /* ----- hủy đăng ký (áp dụng cho cả lớp 1:1 và lịch bù / phụ đạo) ----- */
-function hvHuyDangKy(dangKyId){
+async function hvHuyDangKy(dangKyId){
   const dk = dangKyList.find(d=>d.id===dangKyId);
   if(!dk) return;
+  const prevSnapshot = JSON.parse(JSON.stringify(dangKyList));
   dk.status = 'cancelled';
   // nếu có người đang chờ (queued) cho buổi này, đôn người đầu tiên lên registered
   const nextQueued = dangKyList.filter(d=>d.lessonId===dk.lessonId && d.status==='queued').sort((a,b)=>a.time.localeCompare(b.time))[0];
   if(nextQueued) nextQueued.status = 'registered';
-  appSave('dangKyList');
+  const res = await appSave('dangKyList', {silent:true});
+  if(res && res.ok===false){
+    dangKyList = prevSnapshot;
+    showToast('❌ Hủy đăng ký KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
   if(typeof lichHvRenderDkCalendar==='function') lichHvRenderDkCalendar();
   if(typeof lichHvRenderBuCalendar==='function') lichHvRenderBuCalendar();
   showToast('↩️ Đã hủy đăng ký, bạn có thể chọn lại buổi khác');
@@ -9463,7 +9866,7 @@ function checkScheduleConflict(student, newLesson){
   for(const t of sameDate){ if(Math.abs(timeToMinutes(t.time)-timeToMinutes(newLesson.time)) < 90) return t; }
   return null;
 }
-function hvDangKyBuLesson(lessonId){
+async function hvDangKyBuLesson(lessonId){
   const student = currentStudentRecord();
   const t = tietHocList.find(x=>x.id===lessonId);
   if(!student || !t) return;
@@ -9472,8 +9875,14 @@ function hvDangKyBuLesson(lessonId){
   if(conflict){ showToast(`⚠️ Không thể đăng ký: cách buổi ${qdEsc(conflict.code)} (${conflict.time}) chưa đủ 90 phút.`); return; }
   const registered = dangKyList.filter(d=>d.lessonId===lessonId && d.status==='registered').length;
   const status = registered<t.maxSlots ? 'registered' : 'queued';
-  dangKyList.push({id:'dk'+Date.now()+Math.random().toString(36).slice(2,7), lessonId, studentId:student.id, time:new Date().toISOString(), status});
-  appSave('dangKyList');
+  const dk = {id:'dk'+Date.now()+Math.random().toString(36).slice(2,7), lessonId, studentId:student.id, time:new Date().toISOString(), status};
+  dangKyList.push(dk);
+  const res = await appSave('dangKyList', {silent:true});
+  if(res && res.ok===false){
+    dangKyList = dangKyList.filter(d=>d.id!==dk.id);
+    showToast('❌ Đăng ký lịch bù/phụ đạo KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   lichHvRenderBuCalendar();
   showToast(status==='registered' ? '✅ Đăng ký lịch bù/phụ đạo thành công!' : '⏳ Buổi học đã đầy, bạn đã được thêm vào danh sách chờ.');
 }
@@ -9562,38 +9971,58 @@ function ddGvLessonRowHtml(t, teacher){
     </div>
   </div>`;
 }
-function ddGvSelfAttend(lessonId){
+async function ddGvSelfAttend(lessonId){
   const teacher = window._ddGvTeacher;
   let rec = diemDanhGVList.find(d=>d.tietHocId===lessonId && d.teacherId===teacher.id);
   if(rec && (rec.status==='approved' || rec.status==='pending')) return;
+  const prevSnapshot = rec ? {status:rec.status, hasTaught:rec.hasTaught, time:rec.time} : null;
+  const isNew = !rec;
   if(!rec){ rec={id:'ddgv'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, teacherId:teacher.id, hasTaught:false, status:'pending', time:new Date().toISOString()}; diemDanhGVList.push(rec); }
   else { rec.status='pending'; rec.hasTaught=false; rec.time=new Date().toISOString(); }
-  appSave('diemDanhGVList');
+  const res = await appSave('diemDanhGVList', {silent:true});
+  if(res && res.ok===false){
+    if(isNew) diemDanhGVList = diemDanhGVList.filter(x=>x.id!==rec.id);
+    else Object.assign(rec, prevSnapshot);
+    showToast('❌ Gửi điểm danh KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   ddGvRenderCalendar();
   showToast('⏳ Đã gửi điểm danh, vui lòng chờ Admin xét duyệt');
 }
-function ddGvGenerateCode(lessonId){
+async function ddGvGenerateCode(lessonId){
   const code = String(Math.floor(100000+Math.random()*900000));
   const now=new Date(), expires=new Date(now.getTime()+(30*60+1)*1000);
-  attendanceCodes.push({id:'code'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, code, generatedAt:now.toISOString(), expiresAt:expires.toISOString()});
-  appSave('attendanceCodes');
+  const entry = {id:'code'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, code, generatedAt:now.toISOString(), expiresAt:expires.toISOString()};
+  attendanceCodes.push(entry);
+  const res = await appSave('attendanceCodes', {silent:true});
+  if(res && res.ok===false){
+    attendanceCodes = attendanceCodes.filter(x=>x.id!==entry.id);
+    showToast('❌ Tạo mã điểm danh KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   ddGvRenderCalendar();
   showToast('📶 Đã tạo mã điểm danh — trong 15 phút đầu tính "Có mặt", sau đó đến phút 30 tính "Học trễ", quá 30 phút tính "Vắng học"');
 }
 function formatCountdown(ms){ if(ms<0) ms=0; const s=Math.floor(ms/1000); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }
 
 /* tự động đánh vắng cho học viên chưa điểm danh khi mã hết hạn */
-function autoMarkAbsentIfNeeded(c){
+async function autoMarkAbsentIfNeeded(c){
   const t = tietHocList.find(x=>x.id===c.tietHocId);
   if(!t) return;
-  let changed = false;
+  const addedIds = [];
   lessonEnrolledStudentIds(t).forEach(sid=>{
     if(!diemDanhList.find(d=>d.tietHocId===t.id && d.studentId===sid)){
-      diemDanhList.push({id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:t.id, studentId:sid, status:'absent', time:new Date().toISOString(), confirmationCode:null});
-      changed = true;
+      const rec = {id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:t.id, studentId:sid, status:'absent', time:new Date().toISOString(), confirmationCode:null};
+      diemDanhList.push(rec);
+      addedIds.push(rec.id);
     }
   });
-  if(changed) appSave('diemDanhList');
+  if(!addedIds.length) return;
+  const res = await appSave('diemDanhList', {silent:true});
+  if(res && res.ok===false){
+    diemDanhList = diemDanhList.filter(d=>!addedIds.includes(d.id));
+    console.error('[Điểm danh] Tự động đánh vắng KHÔNG thành công:', res.message);
+  }
 }
 
 /* ---------- banner điểm danh phía học viên ---------- */
@@ -9632,7 +10061,7 @@ function updateBannerCountdown(){
   }
   if(ms<=0){ closeModal('attBannerOverlay'); _attHandledCodeIds.add(c.id); }
 }
-function attBannerSubmit(){
+async function attBannerSubmit(){
   const c = attendanceCodes.find(x=>x.id===_attBannerCodeId);
   const input = document.getElementById('attBannerCodeInput').value.trim();
   const student = currentStudentRecord();
@@ -9640,18 +10069,31 @@ function attBannerSubmit(){
   if(input !== c.code){ showToast('⚠️ Mã điểm danh không đúng'); return; }
   const elapsedMin = (new Date() - new Date(c.generatedAt)) / 60000;
   const status = elapsedMin<=15 ? 'present' : 'late';
-  diemDanhList.push({id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:_attBannerLessonId, studentId:student.id, status, time:new Date().toISOString(), confirmationCode:c.code});
-  appSave('diemDanhList');
+  const rec = {id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:_attBannerLessonId, studentId:student.id, status, time:new Date().toISOString(), confirmationCode:c.code};
+  diemDanhList.push(rec);
+  const res = await appSave('diemDanhList', {silent:true});
+  if(res && res.ok===false){
+    diemDanhList = diemDanhList.filter(d=>d.id!==rec.id);
+    showToast('❌ Điểm danh KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   _attHandledCodeIds.add(c.id);
   closeModal('attBannerOverlay');
   showToast(status==='present' ? '✅ Điểm danh thành công!' : '⏳ Điểm danh thành công — bạn đã vào trễ nên được ghi nhận là "Học trễ".');
 }
 function attBannerExit(){ openModal('attExitConfirmBg'); }
-function attBannerExitConfirmed(){
+async function attBannerExitConfirmed(){
   const student = currentStudentRecord();
+  let rec = null;
   if(student && _attBannerLessonId){
-    diemDanhList.push({id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:_attBannerLessonId, studentId:student.id, status:'absent', time:new Date().toISOString(), confirmationCode:null});
-    appSave('diemDanhList');
+    rec = {id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:_attBannerLessonId, studentId:student.id, status:'absent', time:new Date().toISOString(), confirmationCode:null};
+    diemDanhList.push(rec);
+    const res = await appSave('diemDanhList', {silent:true});
+    if(res && res.ok===false){
+      diemDanhList = diemDanhList.filter(d=>d.id!==rec.id);
+      showToast('❌ Ghi nhận vắng mặt KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
   }
   if(_attBannerCodeId) _attHandledCodeIds.add(_attBannerCodeId);
   closeModal('attExitConfirmBg');
@@ -9773,22 +10215,39 @@ function handleCourseImg(e){
   };
   reader.readAsDataURL(f);
 }
-function saveCourseAdmin(){
+async function saveCourseAdmin(){
   const name = document.getElementById('ctName').value.trim();
   const content = document.getElementById('ctContent').value.trim();
   if(!name || !content){ showToast('⚠️ Vui lòng nhập tên và nội dung khoá học'); return; }
+  // Lưu snapshot để rollback nếu appSave thất bại — không để UI báo "đã lưu" trong khi
+  // Supabase thực ra từ chối (mất quyền/mất mạng), vì như vậy khoá học sẽ "bay màu" ngay
+  // khi trang được tải lại từ nguồn dữ liệu thật (Supabase).
+  const snapshot = courses.map(c=>({...c}));
+  let isEdit = false;
   if(editingCourseId){
+    isEdit = true;
     const c = courses.find(c=>c.id===editingCourseId);
     if(c){ c.name=name; c.desc=content; if(courseImgData) c.image=courseImgData; }
-    showToast(`✅ Đã cập nhật khoá học: "${name}"`);
-    cancelEditCourse();
   } else {
     courses.unshift({id:'c'+Date.now(), name, desc:content, image:courseImgData});
-    showToast(`✅ Đã lưu khoá học: "${name}"`);
-    clearCourseForm();
   }
   renderCourseGrid();
   renderCourseHistory();
+  const res = await appSave('courses', {silent:true});
+  if(res && res.ok===false){
+    courses = snapshot;
+    renderCourseGrid();
+    renderCourseHistory();
+    showToast('❌ Lưu khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  if(isEdit){
+    showToast(`✅ Đã cập nhật khoá học: "${name}"`);
+    cancelEditCourse();
+  } else {
+    showToast(`✅ Đã lưu khoá học: "${name}"`);
+    clearCourseForm();
+  }
 }
 function editCourseAdmin(id){
   const c = courses.find(c=>c.id===id);
@@ -9816,13 +10275,23 @@ function clearCourseForm(){
   document.getElementById('courseImgPreviewWrap').style.display='none';
   courseImgData=null;
 }
-function deleteCourseAdmin(id){
+async function deleteCourseAdmin(id){
   if(!confirm('Bạn có chắc muốn xoá khoá học này không?')) return;
   const idx = courses.findIndex(c=>c.id===id);
-  if(idx>-1) courses.splice(idx,1);
+  if(idx===-1) return;
+  const removed = courses[idx];
+  courses = courses.filter(c=>c.id!==id);
   if(editingCourseId===id) cancelEditCourse();
   renderCourseGrid();
   renderCourseHistory();
+  const res = await appSave('courses', {silent:true});
+  if(res && res.ok===false){
+    courses.splice(idx, 0, removed);
+    renderCourseGrid();
+    renderCourseHistory();
+    showToast('❌ Xoá khoá học KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — khoá học đã được khôi phục.');
+    return;
+  }
   showToast('🗑️ Đã xoá khoá học');
 }
 function viewCourseAdmin(id){
@@ -9864,7 +10333,7 @@ function parseQuestionLine(line){
   if(!['SC','TC','CC'].includes(level)) level='SC';
   return {id:'q'+Date.now()+Math.random().toString(36).slice(2,7), stt, question, A, B, C, D, correct, explain, level};
 }
-function saveBulkQuestions(kind){
+async function saveBulkQuestions(kind){
   const taId = kind==='placement' ? 'tdBulkInput' : 'ldBulkInput';
   const text = document.getElementById(taId).value.trim();
   if(!text){ showToast('⚠️ Vui lòng dán nội dung câu hỏi'); return; }
@@ -9874,14 +10343,24 @@ function saveBulkQuestions(kind){
   if(!parsed.length){ showToast('⚠️ Không đọc được câu hỏi nào, kiểm tra lại định dạng'); return; }
   if(kind==='placement'){
     placementBank.push(...parsed);
-    appSave('placementBank');
+    const res = await appSave('placementBank', {silent:true});
+    if(res && res.ok===false){
+      placementBank = placementBank.slice(0, placementBank.length-parsed.length);
+      showToast('❌ Lưu câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     document.getElementById('tdBulkInput').value='';
     renderPlacementBankTable();
   } else {
     const lvl = document.getElementById('ldLevelSelect').value;
     parsed.forEach(q=>q.level=lvl);
     levelBank[lvl].push(...parsed);
-    appSave('levelBank');
+    const res = await appSave('levelBank', {silent:true});
+    if(res && res.ok===false){
+      levelBank[lvl] = levelBank[lvl].slice(0, levelBank[lvl].length-parsed.length);
+      showToast('❌ Lưu câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     document.getElementById('ldBulkInput').value='';
     renderLevelBankTable();
   }
@@ -9937,9 +10416,10 @@ function editQuestion(kind, id){
   document.getElementById('qeLevel').value=q.level;
   openModal('qEditModalBg');
 }
-function saveQuestionEdit(){
+async function saveQuestionEdit(){
   const q = findQuestion(editingQCtx.kind, editingQCtx.id);
   if(!q) return;
+  const prev = {question:q.question, A:q.A, B:q.B, C:q.C, D:q.D, correct:q.correct, explain:q.explain, level:q.level};
   q.question=document.getElementById('qeQuestion').value.trim();
   q.A=document.getElementById('qeA').value.trim();
   q.B=document.getElementById('qeB').value.trim();
@@ -9948,7 +10428,12 @@ function saveQuestionEdit(){
   q.correct=document.getElementById('qeCorrect').value;
   q.explain=document.getElementById('qeExplain').value.trim();
   q.level=document.getElementById('qeLevel').value;
-  appSave(editingQCtx.kind==='placement' ? 'placementBank' : 'levelBank');
+  const res = await appSave(editingQCtx.kind==='placement' ? 'placementBank' : 'levelBank', {silent:true});
+  if(res && res.ok===false){
+    Object.assign(q, prev);
+    showToast('❌ Cập nhật câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('qEditModalBg');
   renderPlacementBankTable();
   renderLevelBankTable();
@@ -9989,9 +10474,31 @@ async function deleteQuestion(kind, id){
 function fisherYates(arr){
   for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
 }
-function shuffleBank(kind){
-  if(kind==='placement'){ fisherYates(placementBank); appSave('placementBank'); renderPlacementBankTable(); }
-  else { const lvl=document.getElementById('ldLevelSelect').value; fisherYates(levelBank[lvl]); appSave('levelBank'); renderLevelBankTable(); }
+async function shuffleBank(kind){
+  if(kind==='placement'){
+    const prevOrder = placementBank.slice();
+    fisherYates(placementBank);
+    renderPlacementBankTable();
+    const res = await appSave('placementBank', {silent:true});
+    if(res && res.ok===false){
+      placementBank = prevOrder;
+      renderPlacementBankTable();
+      showToast('❌ Trộn câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã khôi phục thứ tự cũ.');
+      return;
+    }
+  } else {
+    const lvl=document.getElementById('ldLevelSelect').value;
+    const prevOrder = levelBank[lvl].slice();
+    fisherYates(levelBank[lvl]);
+    renderLevelBankTable();
+    const res = await appSave('levelBank', {silent:true});
+    if(res && res.ok===false){
+      levelBank[lvl] = prevOrder;
+      renderLevelBankTable();
+      showToast('❌ Trộn câu hỏi KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã khôi phục thứ tự cũ.');
+      return;
+    }
+  }
   showToast('🔀 Đã trộn thứ tự câu hỏi');
 }
 
@@ -10096,7 +10603,7 @@ function qdSelfProfile(role){
 }
 
 /* ---- seed dữ liệu mặc định ---- */
-function qdSeedDefaultForm(){
+async function qdSeedDefaultForm(){
   if(decisionForms.length) return;
   decisionForms.push({
     id:'form'+Date.now()+'a', name:'Đơn xin nghỉ phép', code:'DU', counter:0,
@@ -10110,7 +10617,10 @@ function qdSeedDefaultForm(){
     onlineText:'Tôi tên là <t>, mã số <m>.\nHôm nay, <dd/mm/yyyy>, tôi làm đơn này xin phép nghỉ dạy vì lý do: (Lý do nghỉ)\nSố buổi xin nghỉ: (Số buổi)\n\n<x>\n\nNgười làm đơn\n<k>',
     pdfName:'', pdfData:'', deleted:false, deletedAt:null
   });
-  appSave('decisionForms');
+  // [FIX] Nếu lưu thất bại thì xoá khỏi mảng — tự retry lần sau vì decisionForms.length sẽ
+  // lại là 0 (không rollback được thì lần vào portal kế tiếp cứ tưởng đã seed xong).
+  const res = await appSave('decisionForms', {silent:true});
+  if(res && res.ok===false){ decisionForms = []; }
 }
 function qdEnterPortal(role, name){
   if(role==='student' || role==='teacher'){
@@ -10125,14 +10635,19 @@ function qdEnterPortal(role, name){
     // Date.now() nữa — nên chỉ hiển thị đúng 1 lần, đúng giờ ban đầu, dù đăng nhập bao nhiêu lần.
     const already = decisions.some(d=>d.isSelf && d.targetType===role && d.auto && d.targetCode===self.code);
     if(!already && self.code){
-      decisions.push({
+      const autoDecision = {
         id:'qd'+self.code+'_auto', code:null, formId:null,
         formName: role==='student' ? 'Nhập học' : 'Nhận việc',
         targetType: role, targetName: name || self.name, targetCode: self.code, className: self.className,
         mode:'online', content:'', status:'approved', rejectReason:'',
         createdAt:self.createdAt, decidedAt:self.createdAt, auto:true, isSelf:true, bannerSeen:true, seen:true
+      };
+      decisions.push(autoDecision);
+      // [FIX] Nếu lưu thất bại thì gỡ lại khỏi mảng — lần vào portal kế tiếp `already` sẽ
+      // lại là false nên tự tạo lại (self-healing), không để lại 2 bản ghi trùng id.
+      appSave('decisions', {silent:true}).then(res=>{
+        if(res && res.ok===false) decisions = decisions.filter(d=>d.id!==autoDecision.id);
       });
-      appSave('decisions');
     }
     qdRenderFormList(role);
     qdRenderSelfTable(role);
@@ -10223,21 +10738,37 @@ function qdApplyClick(){
   document.getElementById('qdApplyCodeInput').value='';
   openModal('qdApplyConfirmModalBg');
 }
-function qdApplyConfirmed(){
+// [FIX-QUYẾT-ĐỊNH-KHÔNG-LƯU-CHẮC] appSave('decisions')/appSave('decisionForms') trước đây
+// "bắn rồi quên" ở toàn bộ cụm áp dụng/duyệt/từ chối — đây là hồ sơ chính thức (mã đơn có
+// số thứ tự tăng dần), nếu lưu thất bại mà không hoàn tác thì bộ đếm `form.counter` bị lệch
+// và có thể sinh trùng mã đơn ở lần áp dụng kế tiếp. Giờ chờ lưu thật thành công.
+async function qdApplyConfirmed(){
   const codeInput = document.getElementById('qdApplyCodeInput').value.trim();
   const { targetType, targetObj, formId, className, content } = _qdPendingApply || {};
   if(!targetObj) return;
   if(codeInput !== targetObj.code){ showToast('⚠️ Mã số không khớp, vui lòng nhập đúng mã số học viên/giáo viên'); return; }
   const form = decisionForms.find(f=>f.id===formId);
-  form.counter = (form.counter||0) + 1;
+  const prevCounter = form.counter||0;
+  form.counter = prevCounter + 1;
   const code = form.code + String(form.counter).padStart(5,'0');
-  decisions.push({
+  const decision = {
     id:'qd'+Date.now()+Math.random().toString(16).slice(2), code, formId:form.id, formName:form.name,
     targetType, targetName: targetObj.name, targetCode: targetObj.code, className,
     mode: form.online ? 'online' : 'offline', content, status:'approved', rejectReason:'',
     createdAt:Date.now(), decidedAt:Date.now(), auto:false, isSelf:false, bannerSeen:false, seen:false
-  });
-  appSave('decisions'); appSave('decisionForms');
+  };
+  decisions.push(decision);
+  const [resD, resF] = await Promise.all([
+    appSave('decisions', {silent:true}),
+    appSave('decisionForms', {silent:true})
+  ]);
+  const failed = (resD && resD.ok===false) ? resD : (resF && resF.ok===false ? resF : null);
+  if(failed){
+    decisions = decisions.filter(d=>d.id!==decision.id);
+    form.counter = prevCounter;
+    showToast('❌ Áp dụng quyết định KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('qdApplyConfirmModalBg');
   showToast('✅ Đã áp dụng quyết định');
   document.getElementById('qdTcContent').value='';
@@ -10272,39 +10803,56 @@ function qdViewDon(id){
 }
 function qdOpenApprove(id){ _qdActionId=id; document.getElementById('qdApproveCodeInput').value=''; openModal('qdApproveModalBg'); }
 function qdOpenReject(id){ _qdActionId=id; document.getElementById('qdRejectCodeInput').value=''; document.getElementById('qdRejectReasonInput').value=''; openModal('qdRejectModalBg'); }
-function qdApproveConfirmed(){
+async function qdApproveConfirmed(){
   const d = decisions.find(x=>x.id===_qdActionId);
   if(!d) return;
   const codeInput = document.getElementById('qdApproveCodeInput').value.trim();
   if(codeInput !== d.code){ showToast('⚠️ Mã đơn không khớp'); return; }
+  const prev = {status:d.status, decidedAt:d.decidedAt, bannerSeen:d.bannerSeen, seen:d.seen};
   d.status='approved'; d.decidedAt=Date.now(); d.bannerSeen=false; d.seen=false;
-  appSave('decisions');
+  const res = await appSave('decisions', {silent:true});
+  if(res && res.ok===false){
+    Object.assign(d, prev);
+    showToast('❌ Duyệt đơn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('qdApproveModalBg');
   showToast('✅ Đã duyệt đơn '+d.code);
   renderQdPendingTbl(); updateQdBadges();
 }
-function qdRejectConfirmed(){
+async function qdRejectConfirmed(){
   const d = decisions.find(x=>x.id===_qdActionId);
   if(!d) return;
   const codeInput = document.getElementById('qdRejectCodeInput').value.trim();
   const reason = document.getElementById('qdRejectReasonInput').value.trim();
   if(codeInput !== d.code){ showToast('⚠️ Mã đơn không khớp'); return; }
   if(!reason){ showToast('⚠️ Vui lòng nhập lý do từ chối'); return; }
+  const prev = {status:d.status, decidedAt:d.decidedAt, rejectReason:d.rejectReason, bannerSeen:d.bannerSeen, seen:d.seen};
   d.status='rejected'; d.decidedAt=Date.now(); d.rejectReason=reason; d.bannerSeen=false; d.seen=false;
-  appSave('decisions');
+  const res = await appSave('decisions', {silent:true});
+  if(res && res.ok===false){
+    Object.assign(d, prev);
+    showToast('❌ Từ chối đơn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('qdRejectModalBg');
   showToast('🚫 Đã từ chối đơn '+d.code);
   renderQdPendingTbl(); updateQdBadges();
 }
-function qdPurgeHistory(){
+async function qdPurgeHistory(){
   const now=Date.now(), DAY=24*60*60*1000;
   const decided = decisions.filter(d=>(d.status==='approved'||d.status==='rejected') && !d.auto);
   const over180 = decided.filter(d=>now-d.decidedAt > 180*DAY).sort((a,b)=>a.decidedAt-b.decidedAt);
   if(over180.length){
     const toRemove = over180.slice(0, Math.ceil(over180.length/2));
     const ids = new Set(toRemove.map(d=>d.id));
+    const removed = decisions.filter(d=>ids.has(d.id));
     decisions = decisions.filter(d=>!ids.has(d.id));
-    appSave('decisions');
+    const res = await appSave('decisions', {silent:true});
+    if(res && res.ok===false){
+      decisions = decisions.concat(removed);
+      console.error('[Quyết định] Dọn lịch sử tự động KHÔNG thành công:', res.message);
+    }
   }
 }
 function openQdHistory(){
@@ -10381,7 +10929,7 @@ function openQdFormAdd(formId){
   qdToggleFormModeUI();
   openModal('qdFormAddModalBg');
 }
-function qdSaveForm(){
+async function qdSaveForm(){
   const targetRole = document.querySelector('input[name="qdFormTarget"]:checked').value;
   const name=document.getElementById('qdFormName').value.trim();
   const code=document.getElementById('qdFormCode').value.trim();
@@ -10393,16 +10941,27 @@ function qdSaveForm(){
   if(online && !onlineText.trim()){ showToast('⚠️ Vui lòng nhập nội dung mẫu đơn online'); return; }
   if(offline && !_qdPendingPdf){ showToast('⚠️ Vui lòng tải file PDF cho hình thức offline'); return; }
 
+  let successMsg, prevSnapshot, newFormId;
   if(_qdEditingFormId){
     const f=decisionForms.find(x=>x.id===_qdEditingFormId);
+    prevSnapshot = {...f};
     f.name=name; f.code=code; f.online=online; f.offline=offline; f.onlineText=onlineText; f.targetRole=targetRole;
     if(_qdPendingPdf){ f.pdfName=_qdPendingPdf.name; f.pdfData=_qdPendingPdf.data; }
-    showToast('✅ Đã cập nhật đơn');
+    successMsg = '✅ Đã cập nhật đơn';
   } else {
-    decisionForms.push({ id:'form'+Date.now(), name, code, counter:0, online, offline, onlineText, targetRole,
+    newFormId = 'form'+Date.now();
+    decisionForms.push({ id:newFormId, name, code, counter:0, online, offline, onlineText, targetRole,
       pdfName:_qdPendingPdf?_qdPendingPdf.name:'', pdfData:_qdPendingPdf?_qdPendingPdf.data:'', deleted:false, deletedAt:null });
-    showToast('✅ Đã thêm đơn mới');
+    successMsg = '✅ Đã thêm đơn mới';
   }
+  const res = await appSave('decisionForms', {silent:true});
+  if(res && res.ok===false){
+    if(newFormId){ decisionForms = decisionForms.filter(x=>x.id!==newFormId); }
+    else { const f=decisionForms.find(x=>x.id===_qdEditingFormId); if(f) Object.assign(f, prevSnapshot); }
+    showToast('❌ Lưu biểu mẫu KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast(successMsg);
   closeModal('qdFormAddModalBg');
   renderQdFormsTbl();
   renderQdAdmin();
@@ -10423,6 +10982,7 @@ function qdDeleteForm(id){
   const f=decisionForms.find(x=>x.id===id);
   if(!f) return;
   f.deleted=true; f.deletedAt=Date.now();
+  appSave('decisionForms');
   showToast('🗑️ Đã chuyển đơn vào thùng rác');
   renderQdFormsTbl(); renderQdAdmin();
 }
@@ -10443,6 +11003,7 @@ function qdRestoreForm(id){
   const f=decisionForms.find(x=>x.id===id);
   if(!f) return;
   f.deleted=false; f.deletedAt=null;
+  appSave('decisionForms');
   showToast('♻️ Đã khôi phục đơn');
   openQdTrash(); renderQdFormsTbl(); renderQdAdmin();
 }
@@ -10560,21 +11121,34 @@ function qdSubmitOnline(){
     `<b>Đơn:</b> ${qdEsc(form.name)}<br><b>Người gửi:</b> ${qdEsc(st.targetName)} (${qdEsc(st.targetCode)})`;
   openModal('qdSubmitConfirmModalBg');
 }
-function qdSubmitOnlineConfirmed(){
+async function qdSubmitOnlineConfirmed(){
   closeModal('qdSubmitConfirmModalBg');
   const st=_qdFillState;
   if(!st) return;
   const form=decisionForms.find(f=>f.id===st.formId);
   if(!form) return;
-  form.counter = (form.counter||0)+1;
+  const prevCounter = form.counter||0;
+  form.counter = prevCounter+1;
   const code = form.code + String(form.counter).padStart(5,'0');
   const filledText = qdBuildFilledText(form, st);
-  decisions.push({
+  const decision = {
     id:'qd'+Date.now()+Math.random().toString(16).slice(2), code, formId:form.id, formName:form.name,
     targetType:st.role, targetName:st.targetName, targetCode:st.targetCode, className:st.className,
     mode:'online', content:filledText, status:'pending', rejectReason:'',
     createdAt:Date.now(), decidedAt:null, auto:false, isSelf:true, bannerSeen:true, seen:true
-  });
+  };
+  decisions.push(decision);
+  const [resD, resF] = await Promise.all([
+    appSave('decisions', {silent:true}),
+    appSave('decisionForms', {silent:true})
+  ]);
+  const failed = (resD && resD.ok===false) ? resD : (resF && resF.ok===false ? resF : null);
+  if(failed){
+    decisions = decisions.filter(d=>d.id!==decision.id);
+    form.counter = prevCounter;
+    showToast('❌ Gửi đơn KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã gửi đơn cho admin xét duyệt');
   qdBackToFormList(st.role);
   qdOpenSelfPane(st.role);
@@ -11067,12 +11641,22 @@ function msgBroadcast(kind, payload){
    liệu cũ lại về y nguyên, tính năng "tự dọn dẹp sau 90 ngày" trước đây không có tác dụng
    thật. Giờ: chỉ lưu lại khi thực sự có gì bị xoá, và xoá kèm luôn ảnh/PDF liên quan trong
    Storage để không tích rác. */
-function msgCronCleanup(){
+async function msgCronCleanup(){
   const cutoff = Date.now() - MSG_RETENTION_DAYS*MSG_DAY_MS;
   const expired = msgMessages.filter(m=>m.createdAt < cutoff);
   if(!expired.length) return;
+  const prevMessages = msgMessages;
   msgMessages = msgMessages.filter(m=>m.createdAt >= cutoff);
-  appSave('msgMessages'); // [FIX] lưu lại thật sự, không chỉ sửa biến trong bộ nhớ
+  // [FIX] lưu lại thật sự, không chỉ sửa biến trong bộ nhớ — và rollback nếu lưu thất bại để
+  // tránh lệch dữ liệu giữa các thiết bị (thiết bị này tưởng đã xoá nhưng Supabase vẫn còn).
+  const res = await appSave('msgMessages', {silent:true});
+  if(res && res.ok===false){
+    msgMessages = prevMessages;
+    console.error('[Tin nhắn] Tự động dọn dẹp tin nhắn cũ KHÔNG thành công:', res.message);
+    return;
+  }
+  // Chỉ xoá file rác trong Storage SAU KHI đã lưu thành công, tránh mất file mồ côi
+  // trong trường hợp lưu thất bại và dữ liệu được rollback ở trên.
   const orphanUrls = expired.flatMap(msgCollectFileUrls);
   if(orphanUrls.length) Promise.all(orphanUrls.map(u=>sbDeleteFileByUrl(u)))
     .catch(e=>console.warn('[Storage] Dọn file rác tin nhắn hết hạn thất bại:', e));
@@ -11238,12 +11822,20 @@ function msgMaybeChangeAvatar(){
   document.getElementById('msgAvatarDeviceBtn').style.display = msgCanAvatarDevicePhoto(user) ? '' : 'none';
   openModal('msgAvatarPickerModalBg');
 }
-function msgSetAvatarEmoji(emoji){
+async function msgSetAvatarEmoji(emoji){
   const g = msgCurrentGroup(); const user = msgCurrentUser();
   if(!g || !msgCanAvatarPin(g,user)) return;
+  const prevAvatar = g.avatar;
   g.avatar = emoji;
   msgRenderChatHeader(); msgRenderGroupList();
   closeModal('msgAvatarPickerModalBg');
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.avatar = prevAvatar;
+    msgRenderChatHeader(); msgRenderGroupList();
+    showToast('❌ Đổi ảnh nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã đổi ảnh nhóm');
 }
 async function msgHandleAvatarInput(ev){
@@ -11251,19 +11843,35 @@ async function msgHandleAvatarInput(ev){
   const g = msgCurrentGroup(); const user = msgCurrentUser();
   if(!g || !msgCanAvatarDevicePhoto(user)){ showToast('⚠️ Chỉ Admin được chọn ảnh từ thiết bị'); ev.target.value=''; return; }
   const dataUrl = await msgFileToDataURL(file);
+  const prevAvatar = g.avatar;
   g.avatar = dataUrl;
   msgRenderChatHeader(); msgRenderGroupList();
   closeModal('msgAvatarPickerModalBg');
-  showToast('✅ Đã đổi ảnh nhóm');
   ev.target.value='';
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.avatar = prevAvatar;
+    msgRenderChatHeader(); msgRenderGroupList();
+    showToast('❌ Đổi ảnh nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast('✅ Đã đổi ảnh nhóm');
 }
 /* xoá ảnh nhóm tuỳ chỉnh -> quay về ảnh nhóm nguyên bản (chữ cái đầu) */
-function msgClearAvatar(){
+async function msgClearAvatar(){
   const g = msgCurrentGroup(); const user = msgCurrentUser();
   if(!g || !msgCanAvatarPin(g,user)){ showToast('⚠️ Bạn không có quyền đổi ảnh nhóm'); return; }
+  const prevAvatar = g.avatar;
   g.avatar = null;
   msgRenderChatHeader(); msgRenderGroupList();
   closeModal('msgAvatarPickerModalBg');
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.avatar = prevAvatar;
+    msgRenderChatHeader(); msgRenderGroupList();
+    showToast('❌ Xoá ảnh nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã xoá ảnh nhóm, quay về ảnh mặc định');
 }
 
@@ -11916,24 +12524,48 @@ function msgOpenMembersModal(){
   document.getElementById('msgMembersList').innerHTML = html;
   openModal('msgMembersModalBg');
 }
-function msgSetLeader(memberId){
+async function msgSetLeader(memberId){
   const g = msgCurrentGroup(); if(!g) return;
+  const prevLeaderId = g.leaderId, prevLeaderIsAuto = g.leaderIsAuto;
   g.leaderId = memberId; g.leaderIsAuto = false;
   msgOpenMembersModal(); msgRenderChatHeader(); msgRenderMessages();
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.leaderId = prevLeaderId; g.leaderIsAuto = prevLeaderIsAuto;
+    msgOpenMembersModal(); msgRenderChatHeader(); msgRenderMessages();
+    showToast('❌ Đổi trưởng nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast(memberId ? '✅ Đã đặt trưởng nhóm mới' : '✅ Đã gỡ trưởng nhóm');
 }
-function msgAddDeputy(memberId){
+async function msgAddDeputy(memberId){
   const g = msgCurrentGroup(); if(!g) return;
   g.deputyIds = g.deputyIds || [];
   if(g.deputyIds.length >= MSG_MAX_DEPUTY){ showToast(`⚠️ Chỉ được tối đa ${MSG_MAX_DEPUTY} phó nhóm`); return; }
+  const prevDeputyIds = g.deputyIds.slice();
   if(!g.deputyIds.includes(memberId)) g.deputyIds.push(memberId);
   msgOpenMembersModal(); msgRenderMessages();
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.deputyIds = prevDeputyIds;
+    msgOpenMembersModal(); msgRenderMessages();
+    showToast('❌ Đặt phó nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã đặt phó nhóm');
 }
-function msgRemoveDeputy(memberId){
+async function msgRemoveDeputy(memberId){
   const g = msgCurrentGroup(); if(!g) return;
+  const prevDeputyIds = (g.deputyIds||[]).slice();
   g.deputyIds = (g.deputyIds||[]).filter(id=>id!==memberId);
   msgOpenMembersModal(); msgRenderMessages();
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.deputyIds = prevDeputyIds;
+    msgOpenMembersModal(); msgRenderMessages();
+    showToast('❌ Gỡ phó nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã gỡ phó nhóm');
 }
 
@@ -11977,13 +12609,21 @@ function msgOpenRename(){
   document.getElementById('msgRenameInput').value = g.name;
   openModal('msgRenameModalBg');
 }
-function msgSaveRename(){
+async function msgSaveRename(){
   const g = msgCurrentGroup(); if(!g) return;
   const name = document.getElementById('msgRenameInput').value.trim();
   if(!name){ showToast('⚠️ Vui lòng nhập tên nhóm'); return; }
+  const prevName = g.name;
   g.name = name;
   closeModal('msgRenameModalBg');
   msgRenderChatHeader(); msgRenderGroupList();
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.name = prevName;
+    msgRenderChatHeader(); msgRenderGroupList();
+    showToast('❌ Đổi tên nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã đổi tên nhóm');
 }
 
@@ -12020,24 +12660,37 @@ function msgOpenBlockModal(){
   }
   openModal('msgBlockModalBg');
 }
-function msgToggleBlockMember(memberId){
+async function msgToggleBlockMember(memberId){
   const g = msgCurrentGroup(); if(!g) return;
   g.blockedUserIds = g.blockedUserIds || [];
   g.blockedUntil = g.blockedUntil || {};
+  const prevBlockedUserIds = g.blockedUserIds.slice();
+  const prevBlockedUntil = {...g.blockedUntil};
+  let successMsg;
   const idx = g.blockedUserIds.indexOf(memberId);
   if(idx>=0){
     g.blockedUserIds.splice(idx,1);
     delete g.blockedUntil[memberId];
-    showToast('✅ Đã bỏ chặn thành viên');
+    successMsg = '✅ Đã bỏ chặn thành viên';
   }else{
     const sel = document.getElementById('blockDur-'+memberId);
     const mins = sel ? parseInt(sel.value,10) : 0;
     g.blockedUserIds.push(memberId);
     g.blockedUntil[memberId] = mins>0 ? (Date.now()+mins*60000) : null;
-    showToast('🚫 Đã chặn thành viên nhắn tin');
+    successMsg = '🚫 Đã chặn thành viên nhắn tin';
   }
   msgOpenBlockModal();
   msgRenderInputBar();
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.blockedUserIds = prevBlockedUserIds;
+    g.blockedUntil = prevBlockedUntil;
+    msgOpenBlockModal();
+    msgRenderInputBar();
+    showToast('❌ Thao tác chặn/bỏ chặn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast(successMsg);
 }
 
 /* ---- chỉ định quyền nhắn (admin) ---- */
@@ -12056,11 +12709,19 @@ document.addEventListener('change', (e)=>{
     e.target.closest('label').classList.add('on');
   }
 });
-function msgSavePerm(){
+async function msgSavePerm(){
   const g = msgCurrentGroup(); if(!g) return;
+  const prevPerm = g.sendPermission;
   g.sendPermission = document.querySelector('input[name="msgPermVal"]:checked').value;
   closeModal('msgPermModalBg');
   msgRenderInputBar();
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    g.sendPermission = prevPerm;
+    msgRenderInputBar();
+    showToast('❌ Cập nhật quyền nhắn tin KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast('✅ Đã cập nhật quyền nhắn tin');
 }
 
@@ -12089,17 +12750,24 @@ function msgPreviewGroupCodes(){
     (found.length ? `✅ Tìm thấy: ${found.map(f=>`${qdEsc(f.name)} (${f.role})`).join(', ')}<br>` : '') +
     (notFound.length ? `⚠️ Không tìm thấy mã: ${notFound.join(', ')}` : '');
 }
-function msgCreateCustomGroup(){
+async function msgCreateCustomGroup(){
   const name = document.getElementById('msgNewGroupName').value.trim();
   if(!name){ showToast('⚠️ Vui lòng nhập tên nhóm'); return; }
   msgPreviewGroupCodes();
   if(!_msgPreviewedCodes.length){ showToast('⚠️ Vui lòng nhập ít nhất một mã thành viên hợp lệ'); return; }
   const memberIds = _msgPreviewedCodes.map(f=>f.id);
-  msgGroups.push({
+  const ng = {
     id:'grp-custom-'+Date.now(), type:'custom', name, avatar:null, classId:null,
     leaderId:null, leaderIsAuto:false, deputyIds:[], sendPermission:'all',
     blockedUserIds:[], pinnedMessageIds:[], memberIds, createdAt:Date.now()
-  });
+  };
+  msgGroups.push(ng);
+  const res = await appSave('msgGroups', {silent:true});
+  if(res && res.ok===false){
+    msgGroups = msgGroups.filter(g=>g.id!==ng.id);
+    showToast('❌ Tạo nhóm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('msgCreateGroupModalBg');
   msgRenderGroupList();
   showToast(`✅ Đã tạo nhóm "${name}"`);
@@ -12213,7 +12881,10 @@ function ttUpdateSumBar(){
   bar.textContent = `Tổng trọng số: ${rounded}%` + (ok ? ' ✓ Đủ 100%' : ' (phải đúng 100%)');
   bar.classList.toggle('bad', !ok);
 }
-function ttSaveWeights(){
+// [FIX-BẢNG-ĐIỂM-KHÔNG-LƯU-CHẮC] appSave() các state điểm số (ttWeights/ttScores/ttComments)
+// trước đây "bắn rồi quên" — bảng điểm chính thức của học viên có thể báo "đã lưu" trong khi
+// chưa hề lên Supabase, mất khi tải lại. Giờ chờ lưu thật thành công mới đóng modal/báo OK.
+async function ttSaveWeights(){
   const classId = ttWeightEditingClassId;
   if(!classId) return;
   const fields = ttWeightDraftFields.map(f=>({id:f.id, name:(f.name||'').trim(), percent:parseFloat(f.percent)||0}));
@@ -12221,8 +12892,14 @@ function ttSaveWeights(){
   if(fields.some(f=>!f.name)){ showToast('⚠️ Vui lòng nhập tên cho tất cả các trường điểm số'); return; }
   const sum = fields.reduce((s,f)=>s+f.percent,0);
   if(Math.abs(sum-100)>=0.01){ showToast('⚠️ Tổng trọng số phải bằng đúng 100%'); return; }
+  const prev = ttWeights[classId];
   ttWeights[classId] = fields;
-  appSave('ttWeights');
+  const res = await appSave('ttWeights', {silent:true});
+  if(res && res.ok===false){
+    if(prev===undefined) delete ttWeights[classId]; else ttWeights[classId] = prev;
+    showToast('❌ Lưu cấu trúc điểm số KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('ttWeightModalBg');
   renderTtClassTable();
   ttPopulateBdClassSelect();
@@ -12345,7 +13022,7 @@ function ttOpenScoreModal(classId, studentId){
   if(saveBtn) saveBtn.style.display = readOnly ? 'none' : '';
   openModal('ttScoreModalBg');
 }
-function ttSaveScores(){
+async function ttSaveScores(){
   const ctx = ttScoreEditingCtx;
   if(!ctx || ctx.readOnly) return;
   const inputs = document.querySelectorAll('#ttScoreFieldList input[data-fid]');
@@ -12361,8 +13038,15 @@ function ttSaveScores(){
   });
   if(hasInvalid){ showToast('⚠️ Điểm số phải nằm trong khoảng 0 - 10'); return; }
   ttScores[ctx.classId] = ttScores[ctx.classId] || {};
-  ttScores[ctx.classId][ctx.studentId] = {...(ttScores[ctx.classId][ctx.studentId]||{}), ...newScores};
-  appSave('ttScores');
+  const prevStudentScores = ttScores[ctx.classId][ctx.studentId];
+  ttScores[ctx.classId][ctx.studentId] = {...(prevStudentScores||{}), ...newScores};
+  const res = await appSave('ttScores', {silent:true});
+  if(res && res.ok===false){
+    if(prevStudentScores===undefined) delete ttScores[ctx.classId][ctx.studentId];
+    else ttScores[ctx.classId][ctx.studentId] = prevStudentScores;
+    showToast('❌ Lưu điểm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('ttScoreModalBg');
   renderTtClassTable();
   // Cập nhật theo thời gian thực: danh sách học viên + trạng thái chốt điểm
@@ -12384,13 +13068,20 @@ function ttOpenCommentModal(classId, studentId){
   document.getElementById('ttCommentInput').value = (ttComments[classId] && ttComments[classId][studentId]) || '';
   openModal('ttCommentModalBg');
 }
-function ttSaveComment(){
+async function ttSaveComment(){
   const ctx = ttCommentEditingCtx;
   if(!ctx) return;
   const text = document.getElementById('ttCommentInput').value.trim();
   ttComments[ctx.classId] = ttComments[ctx.classId] || {};
+  const prev = ttComments[ctx.classId][ctx.studentId];
   ttComments[ctx.classId][ctx.studentId] = text;
-  appSave('ttComments');
+  const res = await appSave('ttComments', {silent:true});
+  if(res && res.ok===false){
+    if(prev===undefined) delete ttComments[ctx.classId][ctx.studentId];
+    else ttComments[ctx.classId][ctx.studentId] = prev;
+    showToast('❌ Lưu nhận xét KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('ttCommentModalBg');
   showToast('✅ Đã lưu nhận xét');
 }
@@ -12425,7 +13116,12 @@ function ttOpenSuaSaiSot(classId){
   document.getElementById('ttChotDiemCodeInput').value = '';
   openModal('ttChotDiemModalBg');
 }
-function ttConfirmChotDiem(){
+// [FIX-CHỐT-ĐIỂM-KHÔNG-LƯU-CHẮC] Trước đây appSave('ttEditAttempts')/appSave('ttLocked')
+// "bắn rồi quên" — nếu lưu thất bại, UI vẫn báo "đã mở lại chỉnh sửa (còn x/2 lượt)" hoặc
+// "đã chốt điểm" dù trạng thái thật trên Supabase chưa đổi. Rủi ro: đăng nhập lại sẽ thấy
+// ttLocked/ttEditAttempts CŨ (đọc lại đúng), lệch với những gì admin tưởng đã làm — nặng
+// nhất là giới hạn "2 lượt sửa" có thể bị đếm sai giữa các thiết bị nếu không chờ xác nhận.
+async function ttConfirmChotDiem(){
   const classId = ttChotDiemClassId;
   const c = adminClasses.find(x=>x.id===classId);
   if(!c) return;
@@ -12433,14 +13129,33 @@ function ttConfirmChotDiem(){
   if(!code || code.toUpperCase() !== (c.code||'').toUpperCase()){ showToast('⚠️ Mã lớp không đúng, vui lòng thử lại'); return; }
   closeModal('ttChotDiemModalBg');
   if(ttChotDiemMode==='sua'){
-    ttEditAttempts[classId] = (ttEditAttempts[classId]||0) + 1;
+    const prevAttempts = ttEditAttempts[classId];
+    const prevLocked = ttLocked[classId];
+    ttEditAttempts[classId] = (prevAttempts||0) + 1;
     ttLocked[classId] = false;
-    appSave('ttEditAttempts'); appSave('ttLocked');
+    const [resA, resL] = await Promise.all([
+      appSave('ttEditAttempts', {silent:true}),
+      appSave('ttLocked', {silent:true})
+    ]);
+    const failed = (resA && resA.ok===false) ? resA : (resL && resL.ok===false ? resL : null);
+    if(failed){
+      if(prevAttempts===undefined) delete ttEditAttempts[classId]; else ttEditAttempts[classId] = prevAttempts;
+      if(prevLocked===undefined) delete ttLocked[classId]; else ttLocked[classId] = prevLocked;
+      if(ttCurrentBdClassId===classId) ttRenderBdContent();
+      showToast('❌ Mở lại chỉnh sửa KHÔNG thành công: '+(failed.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     if(ttCurrentBdClassId===classId) ttRenderBdContent();
     showToast(`✅ Đã mở lại chỉnh sửa (còn ${2-ttEditAttempts[classId]}/2 lượt)`);
   } else {
+    const prevLocked = ttLocked[classId];
     ttLocked[classId] = true;
-    appSave('ttLocked');
+    const res = await appSave('ttLocked', {silent:true});
+    if(res && res.ok===false){
+      if(prevLocked===undefined) delete ttLocked[classId]; else ttLocked[classId] = prevLocked;
+      showToast('❌ Chốt điểm KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+      return;
+    }
     ttExportExcel(classId);
     if(ttCurrentBdClassId===classId) ttRenderBdContent();
     showToast('✅ Đã chốt điểm và xuất file Excel');
@@ -12716,7 +13431,13 @@ function xtDoLookup(){
     </div>
   `;
 }
-function xtSaveCertificate(){
+// [FIX-CHỨNG-CHỈ-KHÔNG-LƯU-CHẮC] Trước đây appSave() "bắn rồi quên" — UI báo "cấp thành
+// công" kèm mã chứng chỉ ngay cả khi lưu lên Supabase thất bại. Hậu quả: (1) học viên được
+// đưa 1 mã chứng chỉ không hề tồn tại trên máy chủ (không tra cứu lại được), và (2) vì bản
+// ghi chưa từng lưu nên điều kiện chặn trùng ở trên không thấy nó, admin có thể bấm "Lưu
+// thành tích" lần nữa và tạo ra 2 chứng chỉ khác mã cho cùng 1 học viên/lớp. Giờ chờ lưu
+// thật thành công mới hiện banner + mã; thất bại thì gỡ khỏi mảng và báo lỗi thật.
+async function xtSaveCertificate(){
   const p = window._xtPendingCert;
   if(!p){ showToast('⚠️ Vui lòng tra cứu học viên trước'); return; }
   if(certificates.some(x=>x.studentId===p.studentId && x.classId===p.classId)){
@@ -12737,7 +13458,12 @@ function xtSaveCertificate(){
     issuedAt, expiresAt, createdAt:Date.now()
   };
   certificates.push(cert);
-  appSave('certificates');
+  const res = await appSave('certificates', {silent:true});
+  if(res && res.ok===false){
+    certificates = certificates.filter(x=>x.id!==cert.id);
+    showToast('❌ Cấp chứng chỉ KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   window._xtPendingCert = null;
   document.getElementById('xtLookupInput').value = '';
   document.getElementById('xtLookupResult').innerHTML = `
@@ -12826,19 +13552,26 @@ function xtOpenDeleteConfirm(id){
   document.getElementById('xtDeleteCodeInput').value = '';
   openModal('xtDeleteConfirmModalBg');
 }
-function xtConfirmDelete(){
-  const c = certificates.find(x=>x.id===xtDeletingCertId);
-  if(!c) return;
+async function xtConfirmDelete(){
+  const idx = certificates.findIndex(x=>x.id===xtDeletingCertId);
+  if(idx===-1) return;
+  const c = certificates[idx];
   const input = document.getElementById('xtDeleteCodeInput').value.trim();
   if(!input || input.toLowerCase()!==c.code.toLowerCase()){
     showToast('⚠️ Mã chứng chỉ không khớp, vui lòng nhập đúng để xác nhận xoá');
     return;
   }
   certificates = certificates.filter(x=>x.id!==xtDeletingCertId);
-  appSave('certificates');
   closeModal('xtDeleteConfirmModalBg');
-  showToast('✅ Đã xoá chứng chỉ');
   xtRenderMgList();
+  const res = await appSave('certificates', {silent:true});
+  if(res && res.ok===false){
+    certificates.splice(idx, 0, c);
+    xtRenderMgList();
+    showToast('❌ Xoá chứng chỉ KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
+  showToast('✅ Đã xoá chứng chỉ');
 }
 
 /* ============ 3.3 BẢNG VÀNG (VINH DANH) ============ */
@@ -13156,6 +13889,19 @@ appRegisterState('userBlocks', ()=>userBlocks, v=>{ userBlocks = Array.isArray(v
 });
 appRestore('userBlocks');
 
+appRegisterState('maintenanceWebOn', ()=>maintenanceWebOn, v=>{ maintenanceWebOn = !!v; }, ()=>{
+  const webToggle = document.getElementById('btWebToggle');
+  if(webToggle) webToggle.checked = maintenanceWebOn;
+  if(typeof btRenderLoginMaintenanceUI==='function') btRenderLoginMaintenanceUI();
+});
+appRestore('maintenanceWebOn');
+appRegisterState('maintenanceModules', ()=>maintenanceModules, v=>{ maintenanceModules = v && typeof v==='object' ? v : {}; }, ()=>{
+  if(typeof btRenderModuleList==='function') btRenderModuleList();
+  const activePane = document.querySelector('.pane.active');
+  if(activePane && typeof btCheckPaneMaintenance==='function') btCheckPaneMaintenance(activePane.id);
+});
+appRestore('maintenanceModules');
+
 wireSeg('btMain', v=>{
   document.getElementById('btWebPane').style.display = v==='web' ? '' : 'none';
   document.getElementById('btModulePane').style.display = v==='module' ? '' : 'none';
@@ -13173,10 +13919,20 @@ function btEnterPane(){
 }
 
 /* ---------- Bảo trì web ---------- */
-function btToggleWeb(checked){
+async function btToggleWeb(checked){
+  const prev = maintenanceWebOn;
   maintenanceWebOn = checked;
-  showToast(checked ? '🛠️ Đã bật bảo trì toàn bộ trang web' : '✅ Đã tắt bảo trì trang web');
   btRenderLoginMaintenanceUI();
+  const res = await appSave('maintenanceWebOn', {silent:true});
+  if(res && res.ok===false){
+    maintenanceWebOn = prev;
+    const webToggle = document.getElementById('btWebToggle');
+    if(webToggle) webToggle.checked = prev;
+    btRenderLoginMaintenanceUI();
+    showToast('❌ Lưu trạng thái bảo trì KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
+  showToast(checked ? '🛠️ Đã bật bảo trì toàn bộ trang web' : '✅ Đã tắt bảo trì trang web');
 }
 function btRenderLoginMaintenanceUI(){
   // Nút đăng nhập Gmail luôn hiển thị, kể cả khi đang bảo trì web.
@@ -13206,8 +13962,16 @@ function btRenderModuleList(){
   hvWrap.innerHTML = renderList(hvItems);
   gvWrap.innerHTML = renderList(gvItems);
 }
-function btToggleModule(id, checked){
+async function btToggleModule(id, checked){
+  const prev = maintenanceModules[id];
   maintenanceModules[id] = checked;
+  const res = await appSave('maintenanceModules', {silent:true});
+  if(res && res.ok===false){
+    if(prev===undefined) delete maintenanceModules[id]; else maintenanceModules[id] = prev;
+    btRenderModuleList();
+    showToast('❌ Lưu trạng thái bảo trì KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast(checked ? '🛠️ Đã bật bảo trì cho module này' : '✅ Đã tắt bảo trì cho module này');
 }
 function btCheckPaneMaintenance(id){
@@ -13288,19 +14052,31 @@ function btRenderSelectedList(){
     </div>
   `).join('');
 }
-function btApplyBlocks(){
+// [FIX-CHẶN-TÀI-KHOẢN-KHÔNG-LƯU-CHẮC] Trước đây appSave('userBlocks') "bắn rồi quên" ở cả
+// 3 thao tác (áp dụng/sửa thời gian/xoá) — đây là lệnh CHẶN ĐĂNG NHẬP, nếu lưu thất bại mà
+// UI vẫn báo "đã áp dụng" thì admin đinh ninh người dùng đã bị chặn trong khi thực ra vẫn
+// đăng nhập bình thường được (lỗ hổng bảo mật). Giờ chờ lưu thật thành công mới báo OK.
+async function btApplyBlocks(){
   if(!btSelectedTargets.length){ showToast('⚠️ Vui lòng chọn ít nhất một mục tiêu'); return; }
   const invalid = btSelectedTargets.find(t=>!t.content.trim() || !t.until);
   if(invalid){ showToast('⚠️ Vui lòng nhập đầy đủ nội dung chặn và thời gian cho tất cả mục tiêu'); return; }
+  const addedIds = [];
   btSelectedTargets.forEach(t=>{
-    userBlocks.push({
+    const blk = {
       id:'blk'+Date.now()+Math.random().toString(36).slice(2,6),
       type:t.type, targetId:t.id, code:t.code, name:t.name,
       content:t.content, until:t.until, createdAt:new Date().toISOString()
-    });
+    };
+    userBlocks.push(blk);
+    addedIds.push(blk.id);
   });
+  const res = await appSave('userBlocks', {silent:true});
+  if(res && res.ok===false){
+    userBlocks = userBlocks.filter(b=>!addedIds.includes(b.id));
+    showToast('❌ Áp dụng chặn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   showToast(`✅ Đã áp dụng chặn cho ${btSelectedTargets.length} người dùng`);
-  appSave('userBlocks');
   btSelectedTargets = [];
   document.getElementById('btSearchInput').value='';
   document.getElementById('btSearchResults').innerHTML='';
@@ -13359,15 +14135,21 @@ function btEditTime(id){
   document.getElementById('btEditTimeInput').value = b.until;
   openModal('btEditTimeModalBg');
 }
-function btSaveEditTime(){
+async function btSaveEditTime(){
   const b = userBlocks.find(x=>x.id===btEditingBlockId);
   if(!b) return;
   const val = document.getElementById('btEditTimeInput').value;
   if(!val){ showToast('⚠️ Vui lòng chọn thời gian'); return; }
+  const prevUntil = b.until;
   b.until = val;
+  const res = await appSave('userBlocks', {silent:true});
+  if(res && res.ok===false){
+    b.until = prevUntil;
+    showToast('❌ Cập nhật thời gian chặn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — vui lòng thử lại.');
+    return;
+  }
   closeModal('btEditTimeModalBg');
   showToast('✅ Đã cập nhật thời gian chặn');
-  appSave('userBlocks');
   btRenderHistory();
 }
 let btDeletingBlockId = null;
@@ -13376,7 +14158,7 @@ function btOpenDeleteConfirm(id){
   document.getElementById('btDeleteCodeInput').value='';
   openModal('btDeleteConfirmModalBg');
 }
-function btConfirmDelete(){
+async function btConfirmDelete(){
   // [BẢO MẬT - ĐÃ CẬP NHẬT] Bước "nhập mã số để xác nhận xoá" dưới đây CHỈ LÀ rào cản UX
   // (chống bấm nhầm) — đúng như ghi chú cũ, ai mở console cũng gọi thẳng
   // userBlocks = userBlocks.filter(...) để bỏ qua được. Điều đó KHÔNG còn là lỗ hổng
@@ -13387,8 +14169,11 @@ function btConfirmDelete(){
   // phải đi qua server và bị server từ chối nếu người gọi không phải admin.
   // ⚠️ Việc kiểm tra Edge Function đó nằm ngoài file HTML này — phải tự xác nhận trong
   // Supabase, không thể sửa/verify được chỉ bằng cách sửa code phía client.
-  const b = userBlocks.find(x=>x.id===btDeletingBlockId);
-  if(!b) return;
+  // [FIX-KHÔNG-LƯU-CHẮC] Trước đây appSave() cũng "bắn rồi quên" — xoá lệnh chặn báo thành
+  // công dù có thể chưa lưu, khiến admin tưởng đã gỡ chặn nhưng người dùng vẫn bị chặn.
+  const idx = userBlocks.findIndex(x=>x.id===btDeletingBlockId);
+  if(idx===-1) return;
+  const b = userBlocks[idx];
   const input = document.getElementById('btDeleteCodeInput').value.trim();
   if(!input || input.toLowerCase() !== (b.code||'').toLowerCase()){
     showToast('⚠️ Mã số không khớp, vui lòng nhập đúng để xác nhận xoá');
@@ -13396,9 +14181,15 @@ function btConfirmDelete(){
   }
   userBlocks = userBlocks.filter(x=>x.id!==btDeletingBlockId);
   closeModal('btDeleteConfirmModalBg');
-  showToast('✅ Đã xoá lệnh chặn');
-  appSave('userBlocks');
   btRenderHistory();
+  const res = await appSave('userBlocks', {silent:true});
+  if(res && res.ok===false){
+    userBlocks.splice(idx, 0, b);
+    btRenderHistory();
+    showToast('❌ Xoá lệnh chặn KHÔNG thành công: '+(res.message||'lỗi không xác định')+' — đã được khôi phục.');
+    return;
+  }
+  showToast('✅ Đã xoá lệnh chặn');
 }
 // tick định kỳ để cập nhật "thời gian còn lại" khi đang mở tab lịch sử
 setInterval(()=>{
