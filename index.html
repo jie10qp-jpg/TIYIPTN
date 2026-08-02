@@ -814,8 +814,18 @@ body.dark .login-error{background:#3a1615;color:#ff9d94;border-color:#5c2422;}
 .qd-fill{display:inline-block;border-bottom:1.5px dashed var(--jade-2);color:var(--jade-2);font-weight:700;padding:0 4px;cursor:pointer;min-width:60px;}
 .qd-fill.filled{color:var(--ink);border-bottom-style:solid;}
 .qd-fill-input{border:1.5px solid var(--jade-2);border-radius:6px;padding:2px 6px;font-size:.9rem;font-family:inherit;}
-.qd-fill-select,.qd-fill-date{border:1.5px solid var(--jade-2);border-radius:6px;padding:2px 6px;font-size:.9rem;font-family:inherit;background:var(--paper);color:var(--ink);}
+.qd-fill-select{border:1.5px solid var(--jade-2);border-radius:6px;padding:2px 6px;font-size:.9rem;font-family:inherit;background:var(--paper);color:var(--ink);}
 .qd-italic-sm{font-size:.82em;}
+.qd-scroll-picker-cols{display:flex;gap:0;justify-content:center;position:relative;height:220px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper);}
+.qd-scroll-picker-cols::before{content:'';position:absolute;top:88px;left:8px;right:8px;height:44px;border-top:1.5px solid var(--jade-2);border-bottom:1.5px solid var(--jade-2);pointer-events:none;background:rgba(47,168,102,.07);border-radius:8px;}
+.qd-scroll-col{flex:1;height:220px;overflow-y:auto;scroll-snap-type:y mandatory;text-align:center;font-size:.95rem;-ms-overflow-style:none;scrollbar-width:none;position:relative;border-right:1px solid var(--line);}
+.qd-scroll-col:last-child{border-right:none;}
+.qd-scroll-col::-webkit-scrollbar{display:none;}
+.qd-scroll-col-pad{height:88px;}
+.qd-scroll-item{height:44px;line-height:44px;scroll-snap-align:center;color:var(--ink-soft);font-weight:600;transition:color .15s,font-size .15s;}
+.qd-scroll-item.active{color:var(--jade);font-size:1.18rem;font-weight:800;}
+.qd-scroll-labels{display:flex;justify-content:center;gap:0;font-size:.68rem;font-weight:700;color:var(--ink-soft);margin-top:8px;letter-spacing:.03em;}
+.qd-scroll-labels span{flex:1;text-align:center;}
 .qd-form-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .qd-form-card b{display:block;font-size:.95rem;}
 .qd-form-card .qd-mode-btns{display:flex;gap:8px;}
@@ -3149,6 +3159,17 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
     </div>
 
     <button class="btn btn-primary" style="width:100%;" onclick="qdSaveForm()">LƯU</button>
+  </div>
+</div>
+
+<!-- quyết định: picker dạng cuộn cho <dmy> / <tdmy> -->
+<div class="modal-bg" id="qdScrollPickerModalBg">
+  <div class="modal" style="max-width:380px;">
+    <button class="modal-close" onclick="closeModal('qdScrollPickerModalBg')">✕</button>
+    <h3 style="margin-top:0;" id="qdScrollPickerTitle">Chọn ngày</h3>
+    <div class="qd-scroll-picker-cols" id="qdScrollPickerCols"></div>
+    <div class="qd-scroll-labels" id="qdScrollPickerLabels"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:16px;" onclick="qdConfirmScrollPicker()">XONG</button>
   </div>
 </div>
 
@@ -11030,20 +11051,104 @@ function qdFormatToday(){
   const d=new Date(); const pad=n=>String(n).padStart(2,'0');
   return `ngày ${pad(d.getDate())} tháng ${pad(d.getMonth()+1)} năm ${d.getFullYear()}`;
 }
-// [MỚI] Định dạng cho token <dmy> và <tdmy> trong mẫu đơn online.
-function qdFormatDmyStr(dateStr){
-  if(!dateStr) return '';
-  const [y,m,d] = dateStr.split('-');
-  if(!y||!m||!d) return '';
-  return `ngày ${d}, tháng ${m}, năm ${y}`;
+// [MỚI] Định dạng cho token <dmy> và <tdmy> trong mẫu đơn online (dựa trên object đã chọn qua picker dạng cuộn).
+function qdFormatDmyObj(v){
+  if(!v) return '';
+  const pad2=n=>String(n).padStart(2,'0');
+  return `ngày ${pad2(v.d)}, tháng ${pad2(v.m)}, năm ${v.y}`;
 }
-function qdFormatTdmyStr(dtStr){
-  if(!dtStr) return '';
-  const [datePart,timePart] = dtStr.split('T');
-  if(!datePart||!timePart) return '';
-  const [y,m,d] = datePart.split('-');
-  if(!y||!m||!d) return '';
-  return `${timePart}, ngày ${d}, tháng ${m}, năm ${y}`;
+function qdFormatTdmyObj(v){
+  if(!v) return '';
+  const pad2=n=>String(n).padStart(2,'0');
+  return `${pad2(v.h)}:${pad2(v.mi)}, ngày ${pad2(v.d)}, tháng ${pad2(v.m)}, năm ${v.y}`;
+}
+// [MỚI] Picker dạng cuộn (scroll wheel) thay cho input calendar mặc định của trình duyệt,
+// dùng cho token <dmy> (ngày/tháng/năm) và <tdmy> (giờ/phút/ngày/tháng/năm).
+let _qdFieldValues = {}; // fieldId -> {d,m,y} hoặc {h,mi,d,m,y}
+let _qdScrollPickerState = null;
+const QD_SCROLL_ITEM_H = 44;
+function qdOpenScrollPicker(fieldType, fieldId){
+  const now = new Date();
+  const years = []; for(let y=now.getFullYear()-80; y<=now.getFullYear()+20; y++) years.push(y);
+  const days = Array.from({length:31},(_,i)=>i+1);
+  const months = Array.from({length:12},(_,i)=>i+1);
+  const hours = Array.from({length:24},(_,i)=>i);
+  const minutes = Array.from({length:60},(_,i)=>i);
+  const existing = _qdFieldValues[fieldId] || null;
+  let cols;
+  if(fieldType==='tdmy'){
+    cols = [
+      {key:'h', label:'Giờ', items:hours, pad:2, sel: existing?existing.h:now.getHours()},
+      {key:'mi', label:'Phút', items:minutes, pad:2, sel: existing?existing.mi:now.getMinutes()},
+      {key:'d', label:'Ngày', items:days, pad:2, sel: existing?existing.d:now.getDate()},
+      {key:'m', label:'Tháng', items:months, pad:2, sel: existing?existing.m:now.getMonth()+1},
+      {key:'y', label:'Năm', items:years, pad:0, sel: existing?existing.y:now.getFullYear()}
+    ];
+  } else {
+    cols = [
+      {key:'d', label:'Ngày', items:days, pad:2, sel: existing?existing.d:now.getDate()},
+      {key:'m', label:'Tháng', items:months, pad:2, sel: existing?existing.m:now.getMonth()+1},
+      {key:'y', label:'Năm', items:years, pad:0, sel: existing?existing.y:now.getFullYear()}
+    ];
+  }
+  document.getElementById('qdScrollPickerTitle').textContent = fieldType==='tdmy' ? 'Chọn giờ, ngày tháng năm' : 'Chọn ngày tháng năm';
+  const colsWrap = document.getElementById('qdScrollPickerCols');
+  colsWrap.innerHTML = cols.map(c=>`
+    <div class="qd-scroll-col" data-key="${c.key}">
+      <div class="qd-scroll-col-pad"></div>
+      ${c.items.map(v=>`<div class="qd-scroll-item" data-val="${v}">${c.pad?String(v).padStart(c.pad,'0'):v}</div>`).join('')}
+      <div class="qd-scroll-col-pad"></div>
+    </div>`).join('');
+  document.getElementById('qdScrollPickerLabels').innerHTML = cols.map(c=>`<span>${c.label}</span>`).join('');
+  _qdScrollPickerState = { fieldType, fieldId, cols: cols.map(c=>({key:c.key, items:c.items})) };
+  openModal('qdScrollPickerModalBg');
+  setTimeout(()=>{
+    cols.forEach(c=>{
+      const colEl = colsWrap.querySelector(`.qd-scroll-col[data-key="${c.key}"]`);
+      if(!colEl) return;
+      const idx = c.items.indexOf(c.sel);
+      colEl.scrollTop = (idx>=0?idx:0) * QD_SCROLL_ITEM_H;
+      qdHighlightScrollCol(colEl);
+      let scrollTimer;
+      colEl.addEventListener('scroll', ()=>{
+        qdHighlightScrollCol(colEl);
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(()=>qdSnapScrollCol(colEl), 120);
+      });
+    });
+  }, 30);
+}
+function qdHighlightScrollCol(colEl){
+  const idx = Math.round(colEl.scrollTop / QD_SCROLL_ITEM_H);
+  const items = colEl.querySelectorAll('.qd-scroll-item');
+  items.forEach((it,i)=>it.classList.toggle('active', i===idx));
+}
+function qdSnapScrollCol(colEl){
+  const idx = Math.round(colEl.scrollTop / QD_SCROLL_ITEM_H);
+  colEl.scrollTo({ top: idx*QD_SCROLL_ITEM_H, behavior:'smooth' });
+  qdHighlightScrollCol(colEl);
+}
+function qdConfirmScrollPicker(){
+  const st=_qdScrollPickerState;
+  if(!st) return;
+  const colsWrap = document.getElementById('qdScrollPickerCols');
+  const result = {};
+  st.cols.forEach(c=>{
+    const colEl = colsWrap.querySelector(`.qd-scroll-col[data-key="${c.key}"]`);
+    const idx = colEl ? Math.round(colEl.scrollTop / QD_SCROLL_ITEM_H) : 0;
+    const safeIdx = Math.min(Math.max(idx,0), c.items.length-1);
+    result[c.key] = c.items[safeIdx];
+  });
+  _qdFieldValues[st.fieldId] = result;
+  qdUpdateScrollFieldDisplay(st.fieldType, st.fieldId);
+  closeModal('qdScrollPickerModalBg');
+}
+function qdUpdateScrollFieldDisplay(fieldType, fieldId){
+  const el = document.getElementById(fieldId);
+  const v = _qdFieldValues[fieldId];
+  if(!el || !v) return;
+  el.textContent = fieldType==='tdmy' ? qdFormatTdmyObj(v) : qdFormatDmyObj(v);
+  el.classList.add('filled');
 }
 function qdSelfProfile(role){
   // Lấy đúng hồ sơ thật từ danh sách admin đã quản lý (không dùng dữ liệu giả nữa).
@@ -11576,15 +11681,17 @@ function qdParseFormBody(text, targetName, targetCode, className){
       for(let n=from;n<=to;n++) optsHtml += `<option value="${n}">${n}</option>`;
       return `<select class="qd-fill-select" id="qdSlField_${slIdx}" data-field="${slIdx}"><option value="" selected disabled>— Chọn —</option>${optsHtml}</select>`;
     })
-    // <dmy> -> chọn ngày tháng năm, hiển thị "ngày xx, tháng xx, năm xxxx" sau khi chọn
+    // <dmy> -> ấn để mở picker dạng cuộn chọn ngày tháng năm, hiển thị "ngày xx, tháng xx, năm xxxx"
     .replace(/<dmy>/g, ()=>{
       dmyIdx++;
-      return `<input type="date" class="qd-fill-date" id="qdDmyField_${dmyIdx}" data-field="${dmyIdx}">`;
+      const id = `qdDmyField_${dmyIdx}`;
+      return `<span class="qd-fill" id="${id}" onclick="qdOpenScrollPicker('dmy','${id}')">Ấn để chọn ngày</span>`;
     })
-    // <tdmy> -> chọn giờ + ngày tháng năm, hiển thị "xx:xx, ngày xx, tháng xx, năm xxxx" sau khi chọn
+    // <tdmy> -> ấn để mở picker dạng cuộn chọn giờ + ngày tháng năm, hiển thị "xx:xx, ngày xx, tháng xx, năm xxxx"
     .replace(/<tdmy>/g, ()=>{
       tdmyIdx++;
-      return `<input type="datetime-local" class="qd-fill-date" id="qdTdmyField_${tdmyIdx}" data-field="${tdmyIdx}">`;
+      const id = `qdTdmyField_${tdmyIdx}`;
+      return `<span class="qd-fill" id="${id}" onclick="qdOpenScrollPicker('tdmy','${id}')">Ấn để chọn giờ, ngày</span>`;
     })
     // <b>nội dung<b> -> in đậm
     .replace(/<b>([\s\S]*?)<b>/g, (m, inner)=>`<b>${qdEsc(inner.trim())}</b>`)
@@ -11609,6 +11716,7 @@ function qdOpenOnlineFill(role, formId){
   if(!form) return;
   const self=qdSelfProfile(role);
   _qdFillState = { role, formId, targetName:self.name, targetCode:self.code, className:self.className };
+  _qdFieldValues = {}; // reset giá trị các picker cuộn (<dmy>/<tdmy>) mỗi khi mở đơn mới
   document.getElementById(role==='student'?'qdHvFormList':'qdGvFormList').style.display='none';
   const fillEl=document.getElementById(role==='student'?'qdHvFormFill':'qdGvFormFill');
   fillEl.style.display='';
@@ -11647,13 +11755,13 @@ function qdBuildFilledText(form, st){
     })
     .replace(/<dmy>/g, ()=>{
       dmyIdx++;
-      const el=document.getElementById('qdDmyField_'+dmyIdx);
-      return el && el.value ? qdFormatDmyStr(el.value) : '(chưa chọn ngày)';
+      const v = _qdFieldValues['qdDmyField_'+dmyIdx];
+      return v ? qdFormatDmyObj(v) : '(chưa chọn ngày)';
     })
     .replace(/<tdmy>/g, ()=>{
       tdmyIdx++;
-      const el=document.getElementById('qdTdmyField_'+tdmyIdx);
-      return el && el.value ? qdFormatTdmyStr(el.value) : '(chưa chọn giờ)';
+      const v = _qdFieldValues['qdTdmyField_'+tdmyIdx];
+      return v ? qdFormatTdmyObj(v) : '(chưa chọn giờ)';
     })
     .replace(/<b>([\s\S]*?)<b>/g, (m, inner)=>inner.trim())
     .replace(/<in>([\s\S]*?)<in>/g, (m, inner)=>inner.trim())
