@@ -575,6 +575,24 @@ body.dark .login-error{background:#3a1615;color:#ff9d94;border-color:#5c2422;}
 .ad-dots span{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.4);cursor:pointer;transition:transform .2s ease,background .2s ease;}
 .ad-dots span.on{background:#fff;transform:scale(1.25);}
 .ad-edit-btn{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 14px;border-radius:999px;font-size:.75rem;font-weight:700;}
+/* [MỚI] nội dung quảng cáo hiển thị dạng rich text (đã sanitize), tự xuống dòng đúng theo định dạng đã soạn */
+.ad-banner .ad-content{margin:0;opacity:.92;font-size:.88rem;line-height:1.55;max-width:60ch;word-break:break-word;white-space:pre-wrap;}
+.ad-banner .ad-content p{margin:0 0 6px;}
+.ad-banner .ad-content:empty{display:none;}
+/* [MỚI] khi nội dung quá dài: giới hạn 3 dòng + nút "Xem thêm" / "Thu gọn" */
+.ad-content.ad-content-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.ad-readmore-btn{background:none;border:none;color:inherit;text-decoration:underline;text-underline-offset:2px;font-weight:700;font-size:.78rem;padding:6px 0 0;opacity:.85;position:relative;z-index:1;}
+.ad-readmore-btn:hover{opacity:1;}
+/* [MỚI] hiệu ứng chuyển động mượt giữa các quảng cáo trên trang chủ (fade + trượt nhẹ) */
+.ad-banner{will-change:opacity,transform;}
+.ad-slide-content{animation:adSlideIn .5s cubic-bezier(.22,.68,0,1.01);}
+@keyframes adSlideIn{
+  from{opacity:0;transform:translateX(16px);}
+  to{opacity:1;transform:translateX(0);}
+}
+@media (prefers-reduced-motion:reduce){
+  .ad-slide-content{animation:none;}
+}
 
 .todo-head{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px;}
 .todo-head h3{margin:0;font-size:1.05rem;}
@@ -1864,7 +1882,38 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
           </select>
         </div>
         <div class="field"><label>Tiêu đề</label><input placeholder="VD: Ưu đãi học phí tháng 8" id="qcTitle"></div>
-        <div class="field"><label>Nội dung</label><textarea placeholder="Nội dung quảng cáo..." id="qcContent"></textarea></div>
+        <div class="field"><label>Nội dung</label>
+          <div class="rte-wrap">
+            <div class="rte-toolbar">
+              <button type="button" title="In đậm" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','bold')"><b>B</b></button>
+              <button type="button" title="In nghiêng" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','italic')"><i>I</i></button>
+              <button type="button" title="Gạch chân" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','underline')"><u>U</u></button>
+              <select title="Font chữ" onchange="kcRTECmd('qcContent','fontName', this.value); this.value='';">
+                <option value="">Font…</option>
+                <option value="Manrope">Manrope (VI)</option>
+                <option value="Noto Serif SC">Noto Serif SC (中文)</option>
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times New Roman</option>
+              </select>
+              <select title="Cỡ chữ" onchange="kcRTECmd('qcContent','fontSize', this.value); this.value='';">
+                <option value="">Cỡ chữ…</option>
+                <option value="2">Nhỏ</option>
+                <option value="3">Vừa</option>
+                <option value="4">Hơi lớn</option>
+                <option value="5">Lớn</option>
+                <option value="7">Rất lớn</option>
+              </select>
+              <button type="button" title="Căn trái" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','justifyLeft')">⯇</button>
+              <button type="button" title="Căn giữa" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','justifyCenter')">≡</button>
+              <button type="button" title="Căn phải" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','justifyRight')">⯈</button>
+              <button type="button" title="Đánh số" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','insertOrderedList')">1.</button>
+              <button type="button" title="Gạch đầu dòng" onmousedown="event.preventDefault()" onclick="kcRTECmd('qcContent','insertUnorderedList')">•</button>
+              <input type="color" title="Màu chữ" onmousedown="event.preventDefault()" onchange="kcRTECmd('qcContent','foreColor', this.value)">
+              <button type="button" title="Chèn link" onmousedown="event.preventDefault()" onclick="kcRTEInsertLink('qcContent')">🔗</button>
+            </div>
+            <div class="rte-editor" id="qcContent" contenteditable="true" data-placeholder="Nội dung quảng cáo..." onmouseup="kcRTESaveSelection('qcContent')" onkeyup="kcRTESaveSelection('qcContent')" ontouchend="kcRTESaveSelection('qcContent')"></div>
+          </div>
+        </div>
         <div class="field"><label>Ghim thông báo <span style="font-weight:400;color:var(--ink-soft);">(không bắt buộc)</span></label>
           <select id="qcNotifId"><option value="">— Không chọn —</option></select>
           <div class="hint-txt">Khi chọn, quảng cáo sẽ hiện nút "🔔 Xem thông báo" — học viên bấm vào sẽ tự động chuyển tới đúng thông báo đó.</div>
@@ -4960,6 +5009,15 @@ function renderAdBanners(){
   adSetupAutoplay();
 }
 
+// [MỚI] tách text thuần từ HTML để đo độ dài nội dung (quyết định có cần nút "Xem thêm" không)
+function adStripHtml(html){
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html || '';
+  return tmp.textContent || tmp.innerText || '';
+}
+// ngưỡng ký tự (ước lượng ~3 dòng ở khổ banner hiện tại) để quyết định có rút gọn hay không
+const AD_CONTENT_CLAMP_THRESHOLD = 160;
+
 function renderAdSlide(role, ads){
   const el = document.getElementById(`adBanner-${role}`);
   if(!el) return;
@@ -4974,8 +5032,32 @@ function renderAdSlide(role, ads){
   const dotsHtml = ads.length > 1
     ? `<div class="ad-dots">${ads.map((_,i)=>`<span class="${i===idx?'on':''}" onclick="adGoToSlide('${role}',${i})"></span>`).join('')}</div>`
     : '';
-  el.innerHTML = `<h3>${qdEsc(active.title)}</h3><p>${qdEsc(active.content)}</p>${actionsHtml?`<div class="ad-actions">${actionsHtml}</div>`:''}${dotsHtml}`;
+  // [BẢO MẬT] luôn sanitize nội dung (đã lưu là HTML từ RTE) trước khi bơm vào DOM, kể cả dữ liệu cũ
+  const safeContent = rteSanitize(active.content || '');
+  const isLong = adStripHtml(safeContent).trim().length > AD_CONTENT_CLAMP_THRESHOLD;
+  const contentId = `adContent-${role}`;
+  const readMoreId = `adReadMoreBtn-${role}`;
+  // [MỚI] bọc toàn bộ nội dung slide trong .ad-slide-content -> vì đây là node DOM mới tạo mỗi lần
+  // đổi slide, animation CSS (adSlideIn) sẽ tự chạy lại -> chuyển động mượt mà thay vì đổi giật cục
+  el.innerHTML = `<div class="ad-slide-content">
+    <h3>${qdEsc(active.title)}</h3>
+    <div class="ad-content${isLong ? ' ad-content-clamp' : ''}" id="${contentId}">${safeContent}</div>
+    ${isLong ? `<button type="button" class="ad-readmore-btn" id="${readMoreId}" onclick="adToggleReadMore('${role}')">Xem thêm</button>` : ''}
+    ${actionsHtml?`<div class="ad-actions">${actionsHtml}</div>`:''}
+    ${dotsHtml}
+  </div>`;
   adAttachSwipe(el, role);
+}
+
+// [MỚI] bấm "Xem thêm" / "Thu gọn": chỉ toggle class trên nội dung hiện có, không render lại
+// toàn bộ slide -> tránh replay animation và không làm mất listener vuốt (swipe) đang gắn trên banner
+function adToggleReadMore(role){
+  const contentEl = document.getElementById(`adContent-${role}`);
+  const btn = document.getElementById(`adReadMoreBtn-${role}`);
+  if(!contentEl) return;
+  const wasClamped = contentEl.classList.contains('ad-content-clamp');
+  contentEl.classList.toggle('ad-content-clamp', !wasClamped);
+  if(btn) btn.textContent = wasClamped ? 'Thu gọn' : 'Xem thêm';
 }
 
 function adGoToSlide(role, idx){
@@ -5031,12 +5113,14 @@ function renderAdHistory(){
 
 async function saveAd(){
   const title=document.getElementById('qcTitle').value.trim();
-  const content=document.getElementById('qcContent').value.trim();
+  // [MỚI] ô nội dung giờ là trình soạn thảo (RTE) -> luôn sanitize trước khi dùng/lưu (chống XSS lưu trữ)
+  const content=rteSanitize(document.getElementById('qcContent').innerHTML).trim();
+  const contentIsEmpty = !adStripHtml(content).trim();
   const expiry=document.getElementById('qcExpiry').value;
   const tone=document.getElementById('qcTone').value;
   const linkedNotifId=document.getElementById('qcNotifId').value || null;
   const link=document.getElementById('qcLink').value.trim() || null;
-  if(!title || !content){ showToast('⚠️ Vui lòng nhập tiêu đề và nội dung quảng cáo'); return; }
+  if(!title || contentIsEmpty){ showToast('⚠️ Vui lòng nhập tiêu đề và nội dung quảng cáo'); return; }
 
   // [FIX-QUẢNG-CÁO-KHÔNG-LƯU-CHẮC] Trước đây appSave('adList') "bắn rồi quên" — nếu lưu
   // thất bại, quảng cáo chỉ tồn tại trên máy này và biến mất khi F5 dù đã báo "đã lưu".
@@ -5078,7 +5162,8 @@ function editAd(id){
   editingAdId = id;
   populateQcNotifSelect();
   document.getElementById('qcTitle').value = ad.title;
-  document.getElementById('qcContent').value = ad.content;
+  // [MỚI] nội dung cũ có thể vẫn là text thuần (quảng cáo tạo trước khi có RTE) -> sanitize là đủ an toàn để bơm vào contenteditable
+  document.getElementById('qcContent').innerHTML = rteSanitize(ad.content || '');
   document.getElementById('qcExpiry').value = ad.expiry || '';
   document.getElementById('qcTone').value = ad.tone || 'tone-jade';
   document.getElementById('qcNotifId').value = ad.linkedNotifId || '';
@@ -5096,7 +5181,7 @@ function cancelEditAd(){
 
 function clearAdForm(){
   document.getElementById('qcTitle').value='';
-  document.getElementById('qcContent').value='';
+  document.getElementById('qcContent').innerHTML='';
   document.getElementById('qcExpiry').value='';
   document.getElementById('qcTone').value='tone-jade';
   document.getElementById('qcNotifId').value='';
