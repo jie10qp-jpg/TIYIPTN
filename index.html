@@ -1453,6 +1453,7 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
 
         <!-- ---- giáo viên ---- -->
         <div id="lichRoleTeacher" style="display:none;">
+          <div class="field" style="max-width:360px;"><label>Chọn lớp</label><select id="gvLichClass" onchange="lichGvPopulateWeek()"></select></div>
           <div class="field" style="max-width:360px;"><label>Chọn tuần</label><select id="gvLichWeek" onchange="lichGvRenderCalendar()"></select></div>
           <div class="week-cal" id="gvLichCalendar"></div>
         </div>
@@ -2164,6 +2165,7 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
           <!-- 1:1 -->
           <div id="lichThem1v1">
             <div class="lich-week-select">
+              <div class="field"><label>Chọn lớp</label><select id="lt11ClassSel" onchange="lichPopulateWeekSelect('1v1')"></select></div>
               <div class="field"><label>Chọn tuần</label><select id="lt11Week" onchange="lichRenderCalendar('1v1')"></select></div>
             </div>
             <div class="lich-reg-row">
@@ -2179,6 +2181,7 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
           <!-- Nhóm -->
           <div id="lichThemNhom" style="display:none;">
             <div class="lich-week-select">
+              <div class="field"><label>Chọn lớp</label><select id="ltNhomClassSel" onchange="lichPopulateWeekSelect('nhom')"></select></div>
               <div class="field"><label>Chọn tuần</label><select id="ltNhomWeek" onchange="lichRenderCalendar('nhom')"></select></div>
             </div>
             <div style="display:flex;gap:10px;">
@@ -2790,7 +2793,6 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
     <h3 id="notifBannerTitle" style="margin:0 0 8px;"></h3>
     <p id="notifBannerSnippet" style="color:var(--ink-soft);font-size:.88rem;margin-bottom:22px;"></p>
     <div style="display:flex;gap:10px;">
-      <button class="btn btn-ghost" style="flex:1;" onclick="dismissNotifBanner()">Tắt</button>
       <button class="btn btn-primary" style="flex:1;" onclick="openNotifBannerDetail()">Vào xem</button>
     </div>
   </div>
@@ -4450,20 +4452,29 @@ function enterPortal(role, name){
 // liệu mới đến qua realtime -> banner hiện ra ngay lập tức, không cần F5.
 // isAtLogin=true: gọi từ enterPortal (banner sẽ tự hiện sau hiệu ứng chuyển màn hình).
 // isAtLogin=false (mặc định): gọi realtime giữa lúc đang dùng app -> hiện banner ngay.
+// [FIX-BANNER-THÔNG-BÁO-HIỆN-LẶP-LẠI] Trước đây khi đánh dấu banner "đã xem" (bannerSeenRoles),
+// chỉ sửa trong bộ nhớ (biến notifications) mà KHÔNG appSave() lên Supabase -> mỗi lần F5/đăng
+// nhập lại, dữ liệu notifications được tải lại từ server (chưa có cờ "đã xem") nên banner hiện
+// lại từ đầu, dù học viên/giáo viên đã xem/tắt rồi. Nay lưu lại ngay để đảm bảo CHỈ HIỆN ĐÚNG 1
+// LẦN bên phía người dùng, kể cả sau khi tải lại trang hoặc đổi thiết bị.
 function checkLiveBanners(isAtLogin){
   const role = currentRole;
   if(!role || (role!=='student' && role!=='teacher')) return;
   window._loginBannerQueue = window._loginBannerQueue || [];
   let added = false;
+  let needSaveNotif = false, needSaveDecisions = false;
 
   const pendingBanner = notifications.find(n=>n.status==='published' && n.type==='banner' && !(n.bannerSeenRoles && n.bannerSeenRoles.includes(role)));
   if(pendingBanner){
     pendingBanner.bannerSeenRoles = pendingBanner.bannerSeenRoles || [];
-    if(!pendingBanner.bannerSeenRoles.includes(role)) pendingBanner.bannerSeenRoles.push(role);
+    if(!pendingBanner.bannerSeenRoles.includes(role)){
+      pendingBanner.bannerSeenRoles.push(role);
+      needSaveNotif = true;
+    }
     window._loginBannerQueue.push({
       ic:'📣', title:pendingBanner.title,
       snippet: pendingBanner.content.length>90 ? pendingBanner.content.slice(0,90)+'…' : pendingBanner.content,
-      ghostLabel:'Tắt', primaryLabel:'Vào xem',
+      primaryLabel:'Vào xem', hideGhost:true, // banner đăng của admin: chỉ hiện mỗi nút "Vào xem"
       onPrimary:()=>{ if(typeof openNotifDetail==='function') openNotifDetail(pendingBanner.id); }
     });
     added = true;
@@ -4471,7 +4482,7 @@ function checkLiveBanners(isAtLogin){
 
   const pendingQdBanner = decisions.find(d=>d.targetType===role && !d.auto && d.status!=='pending' && !d.bannerSeen);
   if(pendingQdBanner){
-    pendingQdBanner.bannerSeen = true;
+    if(!pendingQdBanner.bannerSeen){ pendingQdBanner.bannerSeen = true; needSaveDecisions = true; }
     const baseInfo = `${pendingQdBanner.formName} · Mã đơn: ${pendingQdBanner.code||'(không có)'}`;
     window._loginBannerQueue.push({
       ic: pendingQdBanner.status==='approved' ? '✅' : '🚫',
@@ -4481,6 +4492,17 @@ function checkLiveBanners(isAtLogin){
       onPrimary:()=>{ switchPane(pendingQdBanner.targetType==='student' ? 'pane-qd-hv' : 'pane-qd-gv'); if(typeof qdOpenSelfPane==='function') qdOpenSelfPane(pendingQdBanner.targetType); }
     });
     added = true;
+  }
+
+  if(needSaveNotif){
+    appSave('notifications', {silent:true}).then(res=>{
+      if(res && res.ok===false) console.error('[Banner] Lưu trạng thái đã xem banner thông báo KHÔNG thành công:', res.message);
+    });
+  }
+  if(needSaveDecisions){
+    appSave('decisions', {silent:true}).then(res=>{
+      if(res && res.ok===false) console.error('[Banner] Lưu trạng thái đã xem banner đơn từ KHÔNG thành công:', res.message);
+    });
   }
 
   if(added && !isAtLogin && typeof renderLoginBannerStack==='function') renderLoginBannerStack();
@@ -4983,12 +5005,19 @@ function adGoNotif(notifId){
 const adCarouselIndex = {student:0, teacher:0, admin:0};
 let adCarouselTimer = null;
 
+// [MỚI] quảng cáo nào ĐĂNG SAU (tạo sau) hiển thị TRƯỚC — id có dạng 'ad'+Date.now() nên lấy
+// phần số trong id để so sánh thời điểm tạo, sắp xếp giảm dần (mới nhất trước). Dùng .slice()
+// để không làm thay đổi thứ tự gốc của adList (nơi khác như renderAdHistory vẫn cần thứ tự cũ).
 function adActiveList(){
   const now = Date.now();
   return adList.filter(a=>{
     if(!a.expiry) return true;
     const t = new Date(a.expiry).getTime();
     return isNaN(t) || t > now;
+  }).slice().sort((a,b)=>{
+    const ta = parseInt(String(a.id).replace(/[^0-9]/g,''),10) || 0;
+    const tb = parseInt(String(b.id).replace(/[^0-9]/g,''),10) || 0;
+    return tb - ta;
   });
 }
 
@@ -5080,7 +5109,7 @@ function adSetupAutoplay(){
     const ads = adActiveList();
     if(ads.length < 2) return;
     ['student','teacher','admin'].forEach(role=>adStep(role, 1));
-  }, 4500);
+  }, 8000); // [SỬA] 4.5s -> 8.0s theo yêu cầu
 }
 
 /* cho phép người dùng tự lướt (vuốt trái/phải) qua các quảng cáo */
@@ -5601,7 +5630,7 @@ function renderLoginBannerStack(){
       <h3 style="margin:0 0 8px;">${qdEsc(b.title)}</h3>
       <p style="color:var(--ink-soft);font-size:.88rem;margin-bottom:18px;">${b.snippet||''}</p>
       <div style="display:flex;gap:10px;">
-        <button class="btn btn-ghost" style="flex:1;" onclick="loginBannerAction(${i},'ghost')">${b.ghostLabel||'Tắt'}</button>
+        ${b.hideGhost ? '' : `<button class="btn btn-ghost" style="flex:1;" onclick="loginBannerAction(${i},'ghost')">${b.ghostLabel||'Tắt'}</button>`}
         <button class="btn btn-primary" style="flex:1;" onclick="loginBannerAction(${i},'primary')">${b.primaryLabel||'Vào xem'}</button>
       </div>
     </div>`).join('');
@@ -9141,6 +9170,12 @@ function lichPopulateClassSelects(){
   const optNhom = '<option value="">— Chọn lớp —</option>' + adminClasses.filter(c=>c.mode==='nhom' && !c.ended).map(c=>`<option value="${c.id}">${qdEsc(c.name)} (${qdEsc(c.code)})</option>`).join('');
   const s1=document.getElementById('lc11Class'); if(s1) s1.innerHTML=opt1v1;
   const s2=document.getElementById('lcNhomClass'); if(s2) s2.innerHTML=optNhom;
+  // [MỚI] tab "Thêm lịch học": mục chọn lớp riêng — giữ lại lựa chọn cũ (nếu còn hợp lệ) khi
+  // danh sách lớp được nạp lại, để không làm mất lựa chọn của admin đang xem giữa chừng.
+  const s3=document.getElementById('lt11ClassSel');
+  if(s3){ const prev=s3.value; s3.innerHTML=opt1v1; if(prev && adminClasses.some(c=>c.id===prev && c.mode==='1:1')) s3.value=prev; }
+  const s4=document.getElementById('ltNhomClassSel');
+  if(s4){ const prev=s4.value; s4.innerHTML=optNhom; if(prev && adminClasses.some(c=>c.id===prev && c.mode==='nhom')) s4.value=prev; }
 }
 
 /* ----- tab / sub-tab wiring ----- */
@@ -9204,7 +9239,9 @@ async function saveLichHoc(type){
     document.getElementById('lc11Weeks').value=''; document.getElementById('lc11Start').value='';
     document.getElementById('lc11EndBox').textContent='Ngày kết thúc sẽ được tự động tính sau khi nhập số tuần và ngày bắt đầu hợp lệ.';
     showToast('✅ Đã lưu cài đặt lịch học 1:1');
-    lichRenderHistory('1v1'); lichPopulateWeekSelect('1v1');
+    lichRenderHistory('1v1');
+    const lt11ClassSel = document.getElementById('lt11ClassSel'); if(lt11ClassSel) lt11ClassSel.value = classId;
+    lichPopulateWeekSelect('1v1');
   } else if(type==='nhom'){
     const classId = document.getElementById('lcNhomClass').value;
     const weeks = parseInt(document.getElementById('lcNhomWeeks').value,10);
@@ -9227,7 +9264,9 @@ async function saveLichHoc(type){
     document.getElementById('lcNhomWeeks').value=''; document.getElementById('lcNhomStart').value=''; document.getElementById('lcNhomFixed').value='';
     document.getElementById('lcNhomEndBox').textContent='Ngày kết thúc sẽ được tự động tính sau khi nhập số tuần và ngày bắt đầu hợp lệ.';
     showToast('✅ Đã lưu cài đặt lịch học khoá học');
-    lichRenderHistory('nhom'); lichPopulateWeekSelect('nhom');
+    lichRenderHistory('nhom');
+    const ltNhomClassSel = document.getElementById('ltNhomClassSel'); if(ltNhomClassSel) ltNhomClassSel.value = classId;
+    lichPopulateWeekSelect('nhom');
   } else if(type==='bu'){
     const title = document.getElementById('lcBuTitle').value.trim();
     const startVal = document.getElementById('lcBuStart').value;
@@ -9324,11 +9363,25 @@ async function confirmDeleteLichHoc(){
 }
 
 /* ----- chọn tuần (tab Thêm lịch học) ----- */
+// [SỬA-KHÔNG-GỘP-TUẦN-CÁC-LỚP] Trước đây select "Chọn tuần" gộp chung tuần của TẤT CẢ các lớp
+// (1:1 / khoá học) vào 1 danh sách duy nhất (chỉ phân biệt nhau qua tên lớp trong label), khiến
+// admin dễ chọn nhầm tuần của lớp khác khi có nhiều lớp. Nay bắt buộc chọn lớp trước (select
+// lt11ClassSel / ltNhomClassSel) rồi mới lọc đúng các tuần CỦA RIÊNG lớp đó. Lớp bù ('bu') không
+// gắn với lớp cụ thể nên vẫn giữ hành vi cũ (gộp theo tiêu đề lịch bù).
 function lichPopulateWeekSelect(type){
   const selId = type==='1v1' ? 'lt11Week' : type==='nhom' ? 'ltNhomWeek' : 'ltBuWeek';
+  const classSelId = type==='1v1' ? 'lt11ClassSel' : type==='nhom' ? 'ltNhomClassSel' : null;
   const sel = document.getElementById(selId);
   if(!sel) return;
-  const list = lichHocList.filter(l=>l.type===type && l.status==='active' && !isLichExpired(l));
+  const classSel = classSelId ? document.getElementById(classSelId) : null;
+  const filterClassId = classSel ? classSel.value : '';
+  if(classSelId && !filterClassId){
+    sel.innerHTML = '<option value="">— Vui lòng chọn lớp trước —</option>';
+    lichRenderCalendar(type);
+    return;
+  }
+  let list = lichHocList.filter(l=>l.type===type && l.status==='active' && !isLichExpired(l));
+  if(classSelId) list = list.filter(l=>l.classId===filterClassId);
   if(type==='nhom') list.forEach(lh=>lichEnsureAllNhomWeeksGenerated(lh));
   const opts=[];
   list.forEach(lh=>{
@@ -9341,7 +9394,7 @@ function lichPopulateWeekSelect(type){
     });
   });
   if(!opts.length){
-    sel.innerHTML = '<option value="">— Chưa có lịch nào được cài đặt —</option>';
+    sel.innerHTML = '<option value="">— Lớp này chưa có lịch nào được cài đặt —</option>';
   } else {
     sel.innerHTML = opts.map(o=>`<option value="${o.value}">${o.label}</option>`).join('');
     const today = new Date(); today.setHours(0,0,0,0);
@@ -10260,12 +10313,16 @@ function lichHvRenderXlCalendar(){
 function hvViewCardHtml(t){
   const teacher = adminTeachers2.find(x=>x.id===t.teacherId);
   const lh = lichHocList.find(l=>l.id===t.lichHocId);
+  const cls = lh && lh.classId ? adminClasses.find(c=>c.id===lh.classId) : null;
   const typeTag = !lh ? '' : lh.type==='bu' ? '🟡 Bù' : lh.type==='phu' ? '🟣 Phụ đạo' : lh.type==='nhom' ? '📘 Khoá học' : '👤 1:1';
+  // hiện tên lớp + danh sách học viên đã đăng ký buổi học này, để giáo viên biết rõ dạy lớp nào, ai đã đăng ký
+  const studentNames = lessonEnrolledStudentIds(t).map(sid=>{ const s=adminStudents.find(x=>x.id===sid); return s?s.name:null; }).filter(Boolean);
   return `<div class="lesson-card"><b>${qdEsc(t.code)}</b>
-    <div class="lc-row">${typeTag}</div>
+    <div class="lc-row">${typeTag}${cls?(' · '+qdEsc(cls.name)):''}</div>
     <div class="lc-row">👩‍🏫 ${teacher?qdEsc(teacher.name):'—'}</div>
     <div class="lc-row">🕒 ${t.time}${t.room?(' · '+t.room):''}</div>
-    <div class="lc-row">${modeLabelIcon(t.mode)}</div></div>`;
+    <div class="lc-row">${modeLabelIcon(t.mode)}</div>
+    <div class="lc-row">🧑‍🎓 ${studentNames.length?qdEsc(studentNames.join(', ')):'—'}</div></div>`;
 }
 
 /* ---------- 4.3 LỊCH BÙ / PHỤ ĐẠO (đăng ký, kiểm tra xung đột 90') ---------- */
@@ -10354,25 +10411,78 @@ async function hvDangKyBuLesson(lessonId){
   showToast(status==='registered' ? '✅ Đăng ký lịch bù/phụ đạo thành công!' : '⏳ Buổi học đã đầy, bạn đã được thêm vào danh sách chờ.');
 }
 
-/* ---------- 5.1 GIÁO VIÊN: XEM LỊCH ---------- */
+/* ---------- 5.1 GIÁO VIÊN: XEM LỊCH ----------
+   [SỬA-LỊCH-GV-CHỈ-HIỆN-LỚP-ĐÃ-ĐĂNG-KÝ] Trước đây giáo viên thấy TẤT CẢ các tiết mà admin đã
+   giao (gán teacherId) xuống, kể cả khi chưa có học viên nào đăng ký, và các tuần của mọi lớp bị
+   gộp chung vào 1 danh sách "Chọn tuần" duy nhất. Nay:
+   1) Bắt buộc chọn lớp trước (gvLichClass) — mỗi lớp có danh sách tuần RIÊNG, không gộp lẫn nhau.
+   2) Chỉ hiển thị tiết học đã CÓ học viên đăng ký thật sự (lessonEnrolledStudentIds(t).length>0),
+      kèm tên lớp + tên học viên đã đăng ký ngay trên thẻ buổi học (xem hvViewCardHtml). */
+function lichGvGetClassOptions(teacher){
+  const map = new Map(); // key: classId (hoặc '__bu__' cho lớp bù/phụ đạo) -> {id, name}
+  tietHocList.filter(t=>t.teacherId===teacher.id && t.status==='active' && lessonEnrolledStudentIds(t).length>0).forEach(t=>{
+    const lh = lichHocList.find(l=>l.id===t.lichHocId);
+    if(!lh) return;
+    if(lh.type==='bu' || lh.type==='phu'){
+      if(!map.has('__bu__')) map.set('__bu__', {id:'__bu__', name:'🟡 Lớp bù / Phụ đạo'});
+    } else if(lh.classId){
+      if(!map.has(lh.classId)){
+        const cls = adminClasses.find(c=>c.id===lh.classId);
+        map.set(lh.classId, {id:lh.classId, name: cls?cls.name:'?'});
+      }
+    }
+  });
+  return Array.from(map.values());
+}
+function lichGvPopulateClasses(){
+  const teacher = currentTeacherRecord();
+  const sel = document.getElementById('gvLichClass');
+  if(!sel || !teacher) return;
+  const opts = lichGvGetClassOptions(teacher);
+  const prev = sel.value;
+  if(!opts.length){ sel.innerHTML = '<option value="">— Chưa có lớp nào có học viên đăng ký —</option>'; return; }
+  sel.innerHTML = '<option value="">— Chọn lớp —</option>' + opts.map(o=>`<option value="${o.id}">${qdEsc(o.name)}</option>`).join('');
+  if(prev && opts.some(o=>o.id===prev)) sel.value = prev;
+}
 function lichGvPopulateWeek(){
   const teacher = currentTeacherRecord();
   const sel = document.getElementById('gvLichWeek'), cal = document.getElementById('gvLichCalendar');
   if(!teacher){ sel.innerHTML=''; cal.innerHTML='<div class="lich-hist-empty">Không tìm thấy hồ sơ giáo viên.</div>'; return; }
   lichHocList.filter(l=>l.type==='nhom' && l.status==='active' && !isLichExpired(l)).forEach(lh=>lichEnsureAllNhomWeeksGenerated(lh));
-  const mondays = activeLichHocWeekMondays();
-  if(!populateWeekMondaySelect(sel, mondays, true)){ cal.innerHTML='<div class="lich-hist-empty">Chưa có lịch học nào được cài đặt trong hệ thống.</div>'; return; }
+  lichGvPopulateClasses();
+  const classSel = document.getElementById('gvLichClass');
+  const selectedClass = classSel ? classSel.value : '';
+  if(!selectedClass){
+    sel.innerHTML='';
+    cal.innerHTML='<div class="lich-hist-empty">Vui lòng chọn lớp để xem lịch dạy.</div>';
+    return;
+  }
+  const mondays = activeLichHocWeekMondays(l=>{
+    if(selectedClass==='__bu__') return l.type==='bu' || l.type==='phu';
+    return l.classId===selectedClass;
+  });
+  if(!populateWeekMondaySelect(sel, mondays, true)){ cal.innerHTML='<div class="lich-hist-empty">Lớp này chưa có lịch học nào được cài đặt.</div>'; return; }
   lichGvRenderCalendar();
 }
 function lichGvRenderCalendar(){
   const teacher = currentTeacherRecord();
   const sel = document.getElementById('gvLichWeek'), cal = document.getElementById('gvLichCalendar');
-  if(!teacher || !sel.value){ cal.innerHTML='<div class="lich-hist-empty">Chưa có dữ liệu.</div>'; return; }
+  const classSel = document.getElementById('gvLichClass');
+  const selectedClass = classSel ? classSel.value : '';
+  if(!teacher || !selectedClass || !sel.value){ cal.innerHTML='<div class="lich-hist-empty">Chưa có dữ liệu.</div>'; return; }
   const weekStart = parseDateInput(sel.value);
   let html='';
   for(let i=0;i<7;i++){
     const d=addDays(weekStart,i), dateStr=toISODate(d);
-    const lessons = tietHocList.filter(t=>t.teacherId===teacher.id && t.date===dateStr && t.status==='active');
+    const lessons = tietHocList.filter(t=>{
+      if(t.teacherId!==teacher.id || t.date!==dateStr || t.status!=='active') return false;
+      const lh = lichHocList.find(l=>l.id===t.lichHocId);
+      if(!lh) return false;
+      const matchClass = selectedClass==='__bu__' ? (lh.type==='bu'||lh.type==='phu') : lh.classId===selectedClass;
+      if(!matchClass) return false;
+      // chỉ hiện tiết ĐÃ có học viên đăng ký — không hiện mọi tiết admin giao xuống
+      return lessonEnrolledStudentIds(t).length>0;
+    });
     html += `<div class="week-cal-day"><div class="wcd-head">${DAY_NAMES_VN[d.getDay()]}<small>${formatVN(d)}</small></div>
       ${lessons.map(t=>hvViewCardHtml(t)).join('') || '<div class="lich-hist-empty" style="padding:6px 0;">Không có buổi dạy</div>'}
     </div>`;
