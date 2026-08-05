@@ -1453,7 +1453,6 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
 
         <!-- ---- giáo viên ---- -->
         <div id="lichRoleTeacher" style="display:none;">
-          <div class="field" style="max-width:360px;"><label>Chọn lớp</label><select id="gvLichClass" onchange="lichGvPopulateWeek()"></select></div>
           <div class="field" style="max-width:360px;"><label>Chọn tuần</label><select id="gvLichWeek" onchange="lichGvRenderCalendar()"></select></div>
           <div class="week-cal" id="gvLichCalendar"></div>
         </div>
@@ -9865,21 +9864,37 @@ function renderDdHvTable(){
 let diemDanhManual = {}; // key `hv_${studentId}` / `gv_${teacherId}` -> trạng thái ghi nhận trước khi có buổi học/dạy
 appRegisterState('diemDanhManual', ()=>diemDanhManual, v=>{ diemDanhManual = v && typeof v==='object' ? v : {}; }, lichOnCloudSync);
 appRestore('diemDanhManual');
+/* tiết học đã "diễn ra" hay chưa — tính theo ngày+giờ bắt đầu của tiết so với hiện tại.
+   Admin chỉ được sửa điểm danh của những tiết ĐÃ tới giờ học; tiết chưa tới giờ sẽ bị ẩn
+   khỏi màn hình sửa điểm danh (không cho sửa trước khi buổi học thực sự diễn ra). */
+function lessonStartDateTime(t){
+  const d = parseDateInput(t.date);
+  const parts = String(t.time||'0:0').split(':').map(Number);
+  d.setHours(parts[0]||0, parts[1]||0, 0, 0);
+  return d;
+}
+function lessonHasStarted(t){ return lessonStartDateTime(t).getTime() <= Date.now(); }
 function ddOpenEditHv(studentId){
   const s = adminStudents.find(x=>x.id===studentId);
   if(!s) return;
   ddEditingStudentId = studentId;
   document.getElementById('ddHvEditTitle').textContent = `Sửa điểm danh — ${qdEsc(s.name)}`;
-  const lessons = tietHocList.filter(t=>t.status==='active')
+  const allLessons = tietHocList.filter(t=>t.status==='active')
     .filter(t=>{
       const lh = lichHocList.find(l=>l.id===t.lichHocId && l.status==='active');
       return lh && lessonEnrolledStudentIds(t).includes(studentId);
     })
     .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  // chỉ cho sửa những tiết ĐÃ tới giờ học — tiết chưa diễn ra thì ẩn đi, không hiển thị ở đây
+  const lessons = allLessons.filter(t=>lessonHasStarted(t));
+  const hasFutureOnly = !lessons.length && allLessons.length>0;
   const wrap = document.getElementById('ddHvEditSessions');
   if(!lessons.length){
     const cur = diemDanhManual[`hv_${studentId}`] || '';
-    wrap.innerHTML = `<div class="lich-hist-empty" style="margin-bottom:10px;">Học viên chưa có buổi học nào được tạo. Bạn vẫn có thể ghi nhận trạng thái điểm danh trước cho học viên này:</div>
+    const introTxt = hasFutureOnly
+      ? 'Học viên chỉ có các buổi học chưa tới giờ học nên chưa thể sửa điểm danh. Bạn vẫn có thể ghi nhận trạng thái điểm danh trước cho học viên này:'
+      : 'Học viên chưa có buổi học nào được tạo. Bạn vẫn có thể ghi nhận trạng thái điểm danh trước cho học viên này:';
+    wrap.innerHTML = `<div class="lich-hist-empty" style="margin-bottom:10px;">${introTxt}</div>
       <div class="att-sess-row" data-manual="1" data-status="${cur}">
         <div>Điểm danh (chưa gắn buổi học)</div>
         <div class="att-btns">
@@ -9889,9 +9904,10 @@ function ddOpenEditHv(studentId){
         </div>
       </div>`;
   } else {
-    wrap.innerHTML = lessons.map(t=>{
+    const futureNote = allLessons.length>lessons.length ? '<div class="lich-hist-empty" style="margin-bottom:10px;">Các buổi học chưa tới giờ học sẽ không hiển thị ở đây cho tới khi buổi học bắt đầu.</div>' : '';
+    wrap.innerHTML = futureNote + lessons.map(t=>{
       const rec = diemDanhList.find(d=>d.tietHocId===t.id && d.studentId===studentId);
-      const st = rec ? rec.status : 'present';
+      const st = rec ? rec.status : '';
       return `<div class="att-sess-row" data-lesson="${t.id}" data-status="${st}">
         <div>${qdEsc(t.code)} — ${formatVN(parseDateInput(t.date))} ${t.time}</div>
         <div class="att-btns">
@@ -9905,11 +9921,17 @@ function ddOpenEditHv(studentId){
   document.getElementById('ddHvEditCode').value='';
   openModal('ddHvEditModalBg');
 }
+/* bấm vào nút đang được chọn thêm 1 lần nữa để huỷ lựa chọn đó (phòng khi admin bấm nhầm) */
 function ddSetHvStatus(btn, status){
   const row = btn.closest('.att-sess-row');
+  const alreadySelected = row.dataset.status === status;
   row.querySelectorAll('.att-btns button').forEach(b=>b.className='');
-  btn.className = status==='present' ? 'sel-present' : status==='late' ? 'sel-late' : 'sel-absent';
-  row.dataset.status = status;
+  if(alreadySelected){
+    row.dataset.status = '';
+  } else {
+    btn.className = status==='present' ? 'sel-present' : status==='late' ? 'sel-late' : 'sel-absent';
+    row.dataset.status = status;
+  }
 }
 // [FIX-ĐIỂM-DANH-KHÔNG-LƯU-CHẮC] Điểm danh ảnh hưởng trực tiếp học phí/hoàn tiền theo buổi
 // của học viên và lương giáo viên (module ddGv bên dưới) — trước đây appSave() "bắn rồi
@@ -9923,9 +9945,16 @@ async function confirmSaveDdHv(){
   const prevDiemDanhList = JSON.parse(JSON.stringify(diemDanhList));
   const prevManualVal = diemDanhManual[`hv_${ddEditingStudentId}`];
   document.querySelectorAll('#ddHvEditSessions .att-sess-row').forEach(row=>{
-    if(row.dataset.manual==='1'){ if(row.dataset.status) diemDanhManual[`hv_${ddEditingStudentId}`] = row.dataset.status; return; }
+    if(row.dataset.manual==='1'){
+      // bỏ chọn (huỷ bấm nhầm) thì giữ nguyên giá trị đã ghi nhận trước đó, không xoá
+      if(row.dataset.status) diemDanhManual[`hv_${ddEditingStudentId}`] = row.dataset.status;
+      return;
+    }
     const lessonId = row.dataset.lesson;
-    const status = row.dataset.status || 'present';
+    const status = row.dataset.status || '';
+    // dòng chưa được chọn trạng thái nào (hoặc admin đã bấm lại để huỷ lựa chọn vừa bấm nhầm)
+    // — bỏ qua, GIỮ NGUYÊN dữ liệu điểm danh hiện có của buổi này, không xoá không ghi đè.
+    if(!status) return;
     let rec = diemDanhList.find(d=>d.tietHocId===lessonId && d.studentId===ddEditingStudentId);
     if(!rec){ diemDanhList.push({id:'dd'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, studentId:ddEditingStudentId, status, time:new Date().toISOString()}); }
     else rec.status = status;
@@ -9966,11 +9995,17 @@ function ddOpenEditGv(teacherId){
   if(!t) return;
   ddEditingTeacherId = teacherId;
   document.getElementById('ddGvEditTitle').textContent = `Sửa điểm danh — ${qdEsc(t.name)}`;
-  const lessons = tietHocList.filter(x=>x.teacherId===teacherId && x.status==='active').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  const allLessons = tietHocList.filter(x=>x.teacherId===teacherId && x.status==='active').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  // chỉ cho sửa những tiết ĐÃ tới giờ dạy — tiết chưa diễn ra thì ẩn đi, không hiển thị ở đây
+  const lessons = allLessons.filter(x=>lessonHasStarted(x));
+  const hasFutureOnly = !lessons.length && allLessons.length>0;
   const wrap = document.getElementById('ddGvEditSessions');
   if(!lessons.length){
     const cur = diemDanhManual[`gv_${teacherId}`] || '';
-    wrap.innerHTML = `<div class="lich-hist-empty" style="margin-bottom:10px;">Giáo viên chưa có buổi dạy nào được tạo. Bạn vẫn có thể ghi nhận trạng thái trước cho giáo viên này:</div>
+    const introTxt = hasFutureOnly
+      ? 'Giáo viên chỉ có các buổi dạy chưa tới giờ học nên chưa thể sửa điểm danh. Bạn vẫn có thể ghi nhận trạng thái trước cho giáo viên này:'
+      : 'Giáo viên chưa có buổi dạy nào được tạo. Bạn vẫn có thể ghi nhận trạng thái trước cho giáo viên này:';
+    wrap.innerHTML = `<div class="lich-hist-empty" style="margin-bottom:10px;">${introTxt}</div>
       <div class="att-sess-row" data-manual="1" data-status="${cur}">
         <div>Điểm danh (chưa gắn buổi dạy)</div>
         <div class="att-btns">
@@ -9979,9 +10014,10 @@ function ddOpenEditGv(teacherId){
         </div>
       </div>`;
   } else {
-    wrap.innerHTML = lessons.map(les=>{
+    const futureNote = allLessons.length>lessons.length ? '<div class="lich-hist-empty" style="margin-bottom:10px;">Các buổi dạy chưa tới giờ học sẽ không hiển thị ở đây cho tới khi buổi học bắt đầu.</div>' : '';
+    wrap.innerHTML = futureNote + lessons.map(les=>{
       const rec = diemDanhGVList.find(d=>d.tietHocId===les.id && d.teacherId===teacherId);
-      const status = rec ? (rec.status || (rec.hasTaught?'approved':'rejected')) : 'none';
+      const status = rec ? (rec.status || (rec.hasTaught?'approved':'rejected')) : '';
       const pendingTag = status==='pending' ? ' <span class="badge" style="color:#8a6a10;">⏳ GV đã điểm danh, chờ duyệt</span>' : '';
       return `<div class="att-sess-row" data-lesson="${les.id}" data-status="${status}">
         <div>${qdEsc(les.code)} — ${formatVN(parseDateInput(les.date))} ${les.time}${pendingTag}</div>
@@ -9995,11 +10031,17 @@ function ddOpenEditGv(teacherId){
   document.getElementById('ddGvEditCode').value='';
   openModal('ddGvEditModalBg');
 }
+/* bấm vào nút đang được chọn thêm 1 lần nữa để huỷ lựa chọn đó (phòng khi admin bấm nhầm) */
 function ddSetGvStatus(btn, status){
   const row = btn.closest('.att-sess-row');
+  const alreadySelected = row.dataset.status === status;
   row.querySelectorAll('.att-btns button').forEach(b=>b.className='');
-  btn.className = status==='approved' ? 'sel-present' : 'sel-absent';
-  row.dataset.status = status;
+  if(alreadySelected){
+    row.dataset.status = '';
+  } else {
+    btn.className = status==='approved' ? 'sel-present' : 'sel-absent';
+    row.dataset.status = status;
+  }
 }
 // [FIX-ĐIỂM-DANH-GV-KHÔNG-LƯU-CHẮC] "Đã dạy/Chưa dạy" ở đây là căn cứ tính lương giáo
 // viên (xem module Tài chính) — trước đây appSave() "bắn rồi quên" nên bảng lương có thể
@@ -10013,9 +10055,16 @@ async function confirmSaveDdGv(){
   const prevDiemDanhGVList = JSON.parse(JSON.stringify(diemDanhGVList));
   const prevManualVal = diemDanhManual[`gv_${ddEditingTeacherId}`];
   document.querySelectorAll('#ddGvEditSessions .att-sess-row').forEach(row=>{
-    if(row.dataset.manual==='1'){ if(row.dataset.status) diemDanhManual[`gv_${ddEditingTeacherId}`] = row.dataset.status; return; }
+    if(row.dataset.manual==='1'){
+      // bỏ chọn (huỷ bấm nhầm) thì giữ nguyên giá trị đã ghi nhận trước đó, không xoá
+      if(row.dataset.status) diemDanhManual[`gv_${ddEditingTeacherId}`] = row.dataset.status;
+      return;
+    }
     const lessonId = row.dataset.lesson;
-    const status = row.dataset.status==='approved' ? 'approved' : 'rejected';
+    const status = row.dataset.status || '';
+    // dòng chưa được chọn (hoặc admin đã bấm lại để huỷ lựa chọn vừa bấm nhầm) — bỏ qua,
+    // GIỮ NGUYÊN dữ liệu điểm danh hiện có của buổi này (không ảnh hưởng tới buổi khác).
+    if(!status) return;
     let rec = diemDanhGVList.find(d=>d.tietHocId===lessonId && d.teacherId===ddEditingTeacherId);
     if(!rec){ diemDanhGVList.push({id:'ddgv'+Date.now()+Math.random().toString(36).slice(2,7), tietHocId:lessonId, teacherId:ddEditingTeacherId, hasTaught: status==='approved', status, time:new Date().toISOString()}); }
     else { rec.hasTaught = status==='approved'; rec.status = status; }
@@ -10412,77 +10461,41 @@ async function hvDangKyBuLesson(lessonId){
 }
 
 /* ---------- 5.1 GIÁO VIÊN: XEM LỊCH ----------
-   [SỬA-LỊCH-GV-CHỈ-HIỆN-LỚP-ĐÃ-ĐĂNG-KÝ] Trước đây giáo viên thấy TẤT CẢ các tiết mà admin đã
-   giao (gán teacherId) xuống, kể cả khi chưa có học viên nào đăng ký, và các tuần của mọi lớp bị
-   gộp chung vào 1 danh sách "Chọn tuần" duy nhất. Nay:
-   1) Bắt buộc chọn lớp trước (gvLichClass) — mỗi lớp có danh sách tuần RIÊNG, không gộp lẫn nhau.
-   2) Chỉ hiển thị tiết học đã CÓ học viên đăng ký thật sự (lessonEnrolledStudentIds(t).length>0),
-      kèm tên lớp + tên học viên đã đăng ký ngay trên thẻ buổi học (xem hvViewCardHtml). */
-function lichGvGetClassOptions(teacher){
-  const map = new Map(); // key: classId (hoặc '__bu__' cho lớp bù/phụ đạo) -> {id, name}
-  tietHocList.filter(t=>t.teacherId===teacher.id && t.status==='active' && lessonEnrolledStudentIds(t).length>0).forEach(t=>{
+   Gộp chung TẤT CẢ các lớp giáo viên đang dạy vào 1 danh sách "Chọn tuần" duy nhất cho dễ nhìn
+   (không bắt chọn lớp trước rồi mới chọn tuần). Chỉ hiển thị tiết học đã CÓ học viên đăng ký
+   thật sự đối với lớp 1:1 / bù / phụ đạo (lessonEnrolledStudentIds(t).length>0) — lớp nhóm (khoá
+   học) luôn hiển thị vì cả lớp mặc định có mặt. Mỗi thẻ buổi học hiển thị kèm tên lớp + tên học
+   viên đã đăng ký ngay trên thẻ (xem hvViewCardHtml). */
+function lichGvVisibleLessons(teacher){
+  return tietHocList.filter(t=>{
+    if(t.teacherId!==teacher.id || t.status!=='active') return false;
     const lh = lichHocList.find(l=>l.id===t.lichHocId);
-    if(!lh) return;
-    if(lh.type==='bu' || lh.type==='phu'){
-      if(!map.has('__bu__')) map.set('__bu__', {id:'__bu__', name:'🟡 Lớp bù / Phụ đạo'});
-    } else if(lh.classId){
-      if(!map.has(lh.classId)){
-        const cls = adminClasses.find(c=>c.id===lh.classId);
-        map.set(lh.classId, {id:lh.classId, name: cls?cls.name:'?'});
-      }
-    }
+    if(!lh) return false;
+    if(lh.type==='nhom') return true;
+    // lớp 1:1 / bù / phụ đạo: chỉ hiện khi đã có học viên đăng ký
+    return lessonEnrolledStudentIds(t).length>0;
   });
-  return Array.from(map.values());
-}
-function lichGvPopulateClasses(){
-  const teacher = currentTeacherRecord();
-  const sel = document.getElementById('gvLichClass');
-  if(!sel || !teacher) return;
-  const opts = lichGvGetClassOptions(teacher);
-  const prev = sel.value;
-  if(!opts.length){ sel.innerHTML = '<option value="">— Chưa có lớp nào có học viên đăng ký —</option>'; return; }
-  sel.innerHTML = '<option value="">— Chọn lớp —</option>' + opts.map(o=>`<option value="${o.id}">${qdEsc(o.name)}</option>`).join('');
-  if(prev && opts.some(o=>o.id===prev)) sel.value = prev;
 }
 function lichGvPopulateWeek(){
   const teacher = currentTeacherRecord();
   const sel = document.getElementById('gvLichWeek'), cal = document.getElementById('gvLichCalendar');
   if(!teacher){ sel.innerHTML=''; cal.innerHTML='<div class="lich-hist-empty">Không tìm thấy hồ sơ giáo viên.</div>'; return; }
   lichHocList.filter(l=>l.type==='nhom' && l.status==='active' && !isLichExpired(l)).forEach(lh=>lichEnsureAllNhomWeeksGenerated(lh));
-  lichGvPopulateClasses();
-  const classSel = document.getElementById('gvLichClass');
-  const selectedClass = classSel ? classSel.value : '';
-  if(!selectedClass){
-    sel.innerHTML='';
-    cal.innerHTML='<div class="lich-hist-empty">Vui lòng chọn lớp để xem lịch dạy.</div>';
-    return;
-  }
-  const mondays = activeLichHocWeekMondays(l=>{
-    if(selectedClass==='__bu__') return l.type==='bu' || l.type==='phu';
-    return l.classId===selectedClass;
-  });
-  if(!populateWeekMondaySelect(sel, mondays, true)){ cal.innerHTML='<div class="lich-hist-empty">Lớp này chưa có lịch học nào được cài đặt.</div>'; return; }
+  const visibleIds = new Set(lichGvVisibleLessons(teacher).map(t=>t.id));
+  const mondays = activeLichHocWeekMondays(l=>tietHocList.some(t=>t.lichHocId===l.id && visibleIds.has(t.id)));
+  if(!populateWeekMondaySelect(sel, mondays, true)){ cal.innerHTML='<div class="lich-hist-empty">Bạn chưa có buổi dạy nào.</div>'; return; }
   lichGvRenderCalendar();
 }
 function lichGvRenderCalendar(){
   const teacher = currentTeacherRecord();
   const sel = document.getElementById('gvLichWeek'), cal = document.getElementById('gvLichCalendar');
-  const classSel = document.getElementById('gvLichClass');
-  const selectedClass = classSel ? classSel.value : '';
-  if(!teacher || !selectedClass || !sel.value){ cal.innerHTML='<div class="lich-hist-empty">Chưa có dữ liệu.</div>'; return; }
+  if(!teacher || !sel.value){ cal.innerHTML='<div class="lich-hist-empty">Chưa có dữ liệu.</div>'; return; }
   const weekStart = parseDateInput(sel.value);
+  const visible = lichGvVisibleLessons(teacher);
   let html='';
   for(let i=0;i<7;i++){
     const d=addDays(weekStart,i), dateStr=toISODate(d);
-    const lessons = tietHocList.filter(t=>{
-      if(t.teacherId!==teacher.id || t.date!==dateStr || t.status!=='active') return false;
-      const lh = lichHocList.find(l=>l.id===t.lichHocId);
-      if(!lh) return false;
-      const matchClass = selectedClass==='__bu__' ? (lh.type==='bu'||lh.type==='phu') : lh.classId===selectedClass;
-      if(!matchClass) return false;
-      // chỉ hiện tiết ĐÃ có học viên đăng ký — không hiện mọi tiết admin giao xuống
-      return lessonEnrolledStudentIds(t).length>0;
-    });
+    const lessons = visible.filter(t=>t.date===dateStr).sort((a,b)=>a.time.localeCompare(b.time));
     html += `<div class="week-cal-day"><div class="wcd-head">${DAY_NAMES_VN[d.getDay()]}<small>${formatVN(d)}</small></div>
       ${lessons.map(t=>hvViewCardHtml(t)).join('') || '<div class="lich-hist-empty" style="padding:6px 0;">Không có buổi dạy</div>'}
     </div>`;
@@ -10532,10 +10545,13 @@ function ddGvRenderCalendar(){
   const sel = document.getElementById('gvDdWeek'), wrap = document.getElementById('gvDdList');
   if(!teacher || !sel.value){ wrap.innerHTML='<div class="lich-hist-empty">Không có dữ liệu.</div>'; return; }
   const weekStart = parseDateInput(sel.value);
+  // chỉ hiện những ngày giáo viên THỰC SỰ có dạy trong tuần — không hiện toàn bộ 7 ngày.
+  // với lớp 1:1 / bù / phụ đạo thì chỉ tính là "có dạy" khi đã có học viên đăng ký buổi đó.
+  const visible = lichGvVisibleLessons(teacher);
   let html='';
   for(let i=0;i<7;i++){
     const d=addDays(weekStart,i), dateStr=toISODate(d);
-    const lessons = tietHocList.filter(t=>t.teacherId===teacher.id && t.date===dateStr && t.status==='active').sort((a,b)=>a.time.localeCompare(b.time));
+    const lessons = visible.filter(t=>t.date===dateStr).sort((a,b)=>a.time.localeCompare(b.time));
     if(!lessons.length) continue;
     html += `<h3 class="section-title" style="margin-top:18px;font-size:.86rem;">${DAY_NAMES_VN[d.getDay()]}, ${formatVN(d)}</h3>`;
     lessons.forEach(t=> html += ddGvLessonRowHtml(t, teacher));
