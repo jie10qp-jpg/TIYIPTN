@@ -656,10 +656,34 @@ body.dark .login-error{background:#3a1615;color:#ff9d94;border-color:#5c2422;}
 .empty-dev .ic{font-size:1.8rem;margin-bottom:10px;}
 .empty-dev b{display:block;color:var(--ink);margin-bottom:4px;}
 
-.bottom-nav{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:space-around;background:var(--paper);border-top:1px solid var(--line);padding:8px 0 10px;z-index:35;}
-.bottom-nav button{background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink-soft);font-size:.68rem;font-weight:700;flex:1;}
-.bottom-nav button .ic{font-size:1.15rem;}
-.bottom-nav button.active{color:var(--jade);}
+/* ---------- thanh điều hướng "giọt nước" (liquid droplet nav) ---------- */
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;padding:0 12px 14px;z-index:35;}
+.bottom-nav .nav-goo{position:relative;height:66px;}
+.bottom-nav .nav-goo-layer{position:absolute;inset:0;filter:url(#nav-goo-filter);}
+.bottom-nav .nav-bg{position:absolute;left:0;right:0;bottom:0;height:60px;border-radius:30px;background:linear-gradient(135deg,var(--jade),var(--jade-2));box-shadow:0 14px 30px -12px rgba(20,102,61,.55);}
+.bottom-nav .nav-blob{
+  position:absolute;bottom:5px;width:52px;height:52px;border-radius:50%;
+  background:radial-gradient(circle at 32% 28%, rgba(255,255,255,.85) 0%, rgba(255,255,255,.35) 16%, rgba(255,255,255,0) 36%),
+    linear-gradient(160deg, rgba(255,255,255,.32), rgba(255,255,255,.06)), rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.55);
+  box-shadow:inset 0 2px 4px rgba(255,255,255,.7),inset 0 -6px 10px -4px rgba(20,102,61,.35),0 6px 14px -6px rgba(0,0,0,.25);
+  transition:left .62s cubic-bezier(.65,0,.35,1), transform .62s cubic-bezier(.65,0,.35,1);
+  transform-origin:center bottom;
+}
+.bottom-nav .nav-blob.squash{transform:scaleX(1.28) scaleY(.9);}
+.bottom-nav .nav-drop{
+  position:absolute;bottom:50px;width:10px;height:10px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, rgba(255,255,255,.9), rgba(255,255,255,.25) 40%, rgba(255,255,255,.05) 70%);
+  border:1px solid rgba(255,255,255,.5);animation:navDropFall .62s cubic-bezier(.4,0,.2,1) forwards;
+}
+@keyframes navDropFall{0%{transform:translateY(0) scale(1);opacity:1;}70%{transform:translateY(12px) scale(.65);opacity:.75;}100%{transform:translateY(30px) scale(.15);opacity:0;}}
+.bottom-nav .nav-icons{position:relative;z-index:2;display:flex;height:66px;}
+.bottom-nav button{background:none;border:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding-bottom:9px;color:rgba(255,255,255,.68);font-size:.62rem;font-weight:700;flex:1;cursor:pointer;transition:transform .45s cubic-bezier(.34,1.56,.64,1),color .3s;}
+.bottom-nav button .ic{font-size:1.28rem;transition:transform .4s;line-height:1;}
+.bottom-nav button .lb{transition:opacity .25s;}
+.bottom-nav button.active{transform:translateY(-24px);color:var(--jade);}
+.bottom-nav button.active .ic{transform:scale(1.18);}
+.bottom-nav button.active .lb{opacity:0;position:absolute;}
 .bottom-nav .nav-ic-wrap{position:relative;display:inline-flex;}
 .bottom-nav .nav-count-badge{position:absolute;top:-5px;right:-11px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#e0665c;color:#fff;font-size:.6rem;font-weight:800;display:none;align-items:center;justify-content:center;border:2px solid var(--paper);line-height:1;}
 
@@ -1055,6 +1079,17 @@ body.dark .reg-status-card.reg-status-closed{background:linear-gradient(180deg,#
 </style>
 </head>
 <body>
+
+<!-- [UI] filter "goo" dùng cho hiệu ứng giọt nước của thanh điều hướng dưới (.bottom-nav) -->
+<svg width="0" height="0" style="position:absolute;">
+  <defs>
+    <filter id="nav-goo-filter">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur"/>
+      <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" result="goo"/>
+      <feComposite in="SourceGraphic" in2="goo" operator="atop"/>
+    </filter>
+  </defs>
+</svg>
 
 <!-- ============ shared phoenix-feather logo (reused everywhere) ============ -->
 <template id="logo-tpl">
@@ -4386,9 +4421,18 @@ function enterPortal(role, name){
     p.style.display = roles.includes(role) ? '' : 'none';
   });
 
-  // bottom nav
+  // bottom nav ("giọt nước" — xem navPositionBlob/navSpawnDroplets bên dưới)
   const bn=document.getElementById('bottomNav');
-  bn.innerHTML='';
+  bn.innerHTML=`
+    <div class="nav-goo">
+      <div class="nav-goo-layer">
+        <div class="nav-bg"></div>
+        <div class="nav-blob" id="navBlob"></div>
+        <div id="navDropHost"></div>
+      </div>
+      <div class="nav-icons" id="navIcons"></div>
+    </div>`;
+  const navIconsEl = bn.querySelector('#navIcons');
   cfg.tabs.forEach((t,i)=>{
     const b=document.createElement('button');
     const icHtml = t.id==='pane-tinnhan'
@@ -4398,12 +4442,13 @@ function enterPortal(role, name){
       : t.id==='pane-khoahoc-hv'
       ? `<span class="notif-ic-wrap ic">${t.ic}<span class="notif-dot" id="kcHvNavDot" style="display:none;"></span></span>`
       : `<span class="ic">${t.ic}</span>`;
-    b.innerHTML=`${icHtml}${t.label}`;
+    b.innerHTML=`${icHtml}<span class="lb">${t.label}</span>`;
     b.dataset.pane = t.id;
     if(i===0) b.classList.add('active');
-    b.onclick=()=>switchPane(t.id, b);
-    bn.appendChild(b);
+    b.onclick=()=>{ switchPane(t.id, b); navMoveBlobTo(b); };
+    navIconsEl.appendChild(b);
   });
+  requestAnimationFrame(()=>navPositionBlob(navIconsEl.querySelector('button.active'), false));
 
   // drawer menu
   const dm=document.getElementById('drawerMenuItems');
@@ -4518,6 +4563,49 @@ function checkLiveBanners(isAtLogin){
 
   if(added && !isAtLogin && typeof renderLoginBannerStack==='function') renderLoginBannerStack();
 }
+
+/* ---------- thanh điều hướng "giọt nước": định vị + hiệu ứng tách giọt ---------- */
+function navPositionBlob(btn, animate){
+  const blob = document.getElementById('navBlob');
+  const navIconsEl = document.getElementById('navIcons');
+  if(!blob || !navIconsEl || !btn) return;
+  const navRect = navIconsEl.getBoundingClientRect();
+  const r = btn.getBoundingClientRect();
+  const cx = r.left - navRect.left + r.width/2;
+  if(!animate) blob.style.transition = 'none';
+  blob.style.left = (cx - 26) + 'px';
+  if(!animate){ blob.offsetHeight; blob.style.transition=''; }
+}
+function navSpawnDroplets(fromX, toX){
+  const host = document.getElementById('navDropHost');
+  if(!host) return;
+  const midX = (fromX + toX) / 2;
+  for(let i=0;i<2;i++){
+    const d = document.createElement('div');
+    d.className = 'nav-drop';
+    d.style.left = (midX + (i===0?-8:8)) + 'px';
+    host.appendChild(d);
+    setTimeout(()=>d.remove(), 680);
+  }
+}
+function navMoveBlobTo(btn){
+  const blob = document.getElementById('navBlob');
+  const navIconsEl = document.getElementById('navIcons');
+  if(!blob || !navIconsEl || !btn) return;
+  const navRect = navIconsEl.getBoundingClientRect();
+  const fromX = parseFloat(blob.style.left || '0') + 26; // vị trí (tâm) trước khi di chuyển
+  const toX = btn.getBoundingClientRect().left - navRect.left + btn.offsetWidth/2;
+  if(Math.abs(fromX - toX) < 1) return; // đã ở đúng vị trí, không cần chạy hiệu ứng
+  navPositionBlob(btn, true);
+  blob.classList.add('squash');
+  navSpawnDroplets(fromX, toX);
+  setTimeout(()=>blob.classList.remove('squash'), 380);
+}
+window.addEventListener('resize', ()=>{
+  const navIconsEl = document.getElementById('navIcons');
+  const active = navIconsEl && navIconsEl.querySelector('button.active');
+  if(active) navPositionBlob(active, false);
+});
 
 function switchPane(id, btnEl){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
